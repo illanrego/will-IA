@@ -7,13 +7,15 @@ never deletes history or replaces unavailable view state.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import shutil
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import repl
+from . import notes, repl, text
 from .chat import Chat
 from .config import Config
 from .store import Log
@@ -116,6 +118,118 @@ def _restore_view(config: Config) -> tuple[int, int, int]:
     return covered, records, roots_added
 
 
+def _note_files(raw_paths: list[str], *, recursive: bool) -> list[Path]:
+    """Expand note operands in occurrence order without collapsing duplicates."""
+    files = []
+    for raw in raw_paths:
+        path = Path(raw).expanduser()
+        if not path.exists():
+            raise ValueError(f"Note path does not exist: {path}")
+        if path.is_file():
+            selected = [path]
+        elif path.is_dir():
+            candidates = path.rglob("*.md") if recursive else path.glob("*.md")
+            selected = sorted(
+                (candidate for candidate in candidates if candidate.is_file()),
+                key=lambda candidate: (candidate.name, str(candidate)),
+            )
+        else:
+            selected = []
+        if not selected:
+            raise ValueError(f"Note path contributes no files: {path}")
+        files.extend(selected)
+    return files
+
+
+def _read_note(path: Path) -> tuple[str, int]:
+    try:
+        raw = path.read_bytes()
+        return raw.decode("utf-8"), len(raw)
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"Cannot read note file {path}: {exc}") from exc
+
+
+def _preview_notes(config: Config, files: list[Path]) -> None:
+    total_bytes = 0
+    total_records = 0
+    print("Notes preview (no writes):")
+    for path in files:
+        note_text, size = _read_note(path)
+        records = len(text.split_for_kind(note_text, config.node_bytes, "note"))
+        total_bytes += size
+        total_records += records
+        print(f"{path}: bytes={size} records={records}")
+    print(f"Files: {len(files)}")
+    print(f"Total bytes: {total_bytes}")
+    print(f"Projected records: {total_records}")
+    print(f"Projected compaction merges: ~{max(total_records - 1, 0)}")
+
+
+def _finish_note_compaction(chat: Chat, budget: float) -> int:
+    """Spend at most ``budget`` seconds completing queued note compactions."""
+    deadline = time.monotonic() + budget
+    built = 0
+    next_progress = 25
+    while True:
+        with chat._engine():
+            remaining = len(chat.compactor._queued)
+        if not remaining or time.monotonic() >= deadline:
+            break
+        with chat._engine():
+            pass_built = chat.compactor.run_pending(
+                limit=chat.config.compact_concurrency,
+                deadline=deadline,
+            )
+            remaining = len(chat.compactor._queued)
+        built += pass_built
+        if built >= next_progress:
+            print(f"built={built} remaining={remaining}", flush=True)
+            next_progress = ((built // 25) + 1) * 25
+        if pass_built == 0 and remaining:
+            pause = min(0.05, max(0.0, deadline - time.monotonic()))
+            if pause:
+                time.sleep(pause)
+    return built
+
+
+def _import_note_files(config: Config, files: list[Path], *, budget: float) -> None:
+    loaded = [(path, *_read_note(path)) for path in files]
+    chat = Chat.open(config)
+    try:
+        before = chat.log.count()
+        for path, note_text, _size in loaded:
+            try:
+                with chat._engine():
+                    notes.import_notes(
+                        chat.log, chat.compactor, chat.view, [note_text])
+            except Exception as exc:
+                raise RuntimeError(f"Cannot import note file {path}: {exc}") from exc
+
+        completion_built = _finish_note_compaction(chat, budget)
+        with chat._engine():
+            chat.tree.save()
+            chat.view.save()
+            chat.save()
+            added = chat.log.count() - before
+            nodes = Counter(level for level, _index in chat.tree.nodes())
+            view_text = chat.view.render()
+            view_lines = len(chat.view.lines())
+            settled = chat.view.settled()
+            remaining = len(chat.compactor._queued)
+
+        levels = ", ".join(f"{level}={nodes[level]}" for level in sorted(nodes)) or "none"
+        total_bytes = sum(size for _path, _text, size in loaded)
+        print(f"Imported notes: files={len(files)} bytes={total_bytes} records_added={added}")
+        print(f"Tree nodes by level: {levels}")
+        print(f"View: bytes={len(view_text.encode('utf-8'))} lines={view_lines} "
+              f"settled={'yes' if settled else 'no'}")
+        print(f"Completion: built={completion_built} remaining={remaining}")
+        print(f"Pending: {remaining} unbuilt nodes; any remaining work is resumable on "
+              "the next run; already present? no dedup - a second import appends again")
+    finally:
+        chat.close()
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="willia", description="One endless chat.",
                                      allow_abbrev=False)
@@ -124,6 +238,14 @@ def main(argv=None) -> int:
     mode.add_argument("--status", action="store_true", help="print chat state and exit")
     mode.add_argument("--restore-view", action="store_true",
                       help="validate and adopt the saved view publication")
+    mode.add_argument("--notes", nargs="*", metavar="PATH",
+                      help="import markdown files as note records")
+    parser.add_argument("--notes-recursive", action="store_true",
+                        help="include markdown files in nested directories")
+    parser.add_argument("--notes-preview", action="store_true",
+                        help="show note import cost without writing")
+    parser.add_argument("--notes-budget", type=float, default=None, metavar="SECONDS",
+                        help="maximum completion time after importing notes (default: 900)")
     try:
         options = parser.parse_args(argv)
     except SystemExit as exc:
@@ -131,6 +253,22 @@ def main(argv=None) -> int:
     chat = None
     try:
         config = Config.load()
+        note_option = (options.notes_recursive or options.notes_preview
+                       or options.notes_budget is not None)
+        if options.notes is None and note_option:
+            raise ValueError("Note options require --notes PATH [PATH ...]")
+        if options.notes is not None:
+            if not options.notes:
+                raise ValueError("--notes requires at least one PATH")
+            budget = 900.0 if options.notes_budget is None else options.notes_budget
+            if budget < 0:
+                raise ValueError("--notes-budget must be nonnegative")
+            files = _note_files(options.notes, recursive=options.notes_recursive)
+            if options.notes_preview:
+                _preview_notes(config, files)
+            else:
+                _import_note_files(config, files, budget=budget)
+            return 0
         if options.restore_view:
             covered, records, roots_added = _restore_view(config)
             print(f"Restored view: covered_end={covered} records={records} "
