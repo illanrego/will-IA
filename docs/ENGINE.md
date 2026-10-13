@@ -427,6 +427,12 @@ exists), a log migration later — so it happens once, in P0.
 `Compactor`), the tool payload keys `id` / `n` (the design's own vocabulary — `zoom(id, n)`), and
 every byte constant.
 
+**The rename list covers every piece of text a log, a view or a prompt carries** — including the
+canon's own prompt block, whose kinds list named `unii`. A brief must state it as this *set*, never
+as a count of permitted edits: P0b's brief said "exactly two edits allowed" and the delegate
+correctly stopped and asked instead of applying the kind rename, which left the prompt contradicting
+the log until P0c fixed it. Delegates are literal; scope their latitude as a set, not a number.
+
 The recipe's own warning applies here: the prompt must name the tools **exactly** as registered —
 the host build once shipped `zoom`/`date` in the prompt while the tools were `optchat_*`, and
 navigation was impossible. A test must read the names from the tool registry and assert each

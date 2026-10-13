@@ -11,3 +11,6 @@ dependencies = []
 
 [tool.setuptools]
 packages = ["willia"]
+
+[tool.setuptools.package-data]
+willia = ["*.md"]

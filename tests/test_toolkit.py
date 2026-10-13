@@ -26,8 +26,9 @@ def test_system_prompt_matches_canonical_block():
         "computer not listed can't be done now: tell the user.\n\n"
     )
     assert block.count(computers) == 1
-    expected = block.replace("Unii", "WillIA").replace(computers, "")
+    expected = block.replace(computers, "").replace("Unii", "WillIA").replace("unii", "will")
     assert prompts.SYSTEM_PROMPT.encode("utf-8") == expected.encode("utf-8")
+    assert "unii" not in prompts.SYSTEM_PROMPT
     assert not hasattr(prompts, "COMPACTION_SYSTEM")
     assert not hasattr(prompts, "RUBRIC")
 
@@ -48,6 +49,18 @@ def test_schema_names_and_order():
     toolkit = importlib.import_module("willia.toolkit")
     assert toolkit.TOOL_NAMES == NAMES
     assert tuple(schema["function"]["name"] for schema in toolkit.schemas()) == NAMES
+
+
+def test_all_tool_names_are_in_the_composed_prompt():
+    toolkit = importlib.import_module("willia.toolkit")
+    instructions = prompts.default_instructions()
+    composed = prompts.build_system_prompt(instructions)
+    assert all(name in composed for name in toolkit.TOOL_NAMES)
+    assert all(name in prompts.SYSTEM_PROMPT for name in ("zoom", "date"))
+    assert composed.startswith(prompts.SYSTEM_PROMPT)
+    assert len(composed) > len(prompts.SYSTEM_PROMPT)
+    assert instructions
+    assert all(name in instructions for name in NAMES[2:])
 
 
 def test_schemas_match_documented_contract():

@@ -9,7 +9,7 @@ If a delegate is broken, the target is swapped; nothing inside willia changes.
 | | `delegate_codex` | `delegate_hermes` |
 |---|---|---|
 | binary | `$(npm prefix -g)/bin/codex` (verified `/home/illan/.nvm/versions/node/v24.15.0/bin/codex`, `codex-cli 0.153.4`; **not on PATH**) | `hermes` (verified `/home/illan/.local/bin/hermes`) |
-| model | explicit: `gpt-6-sol` (default) or `gpt-6-astra` | the default profile's own model — **pass nothing** |
+| model | explicit `-m`: the account's catalog is `gpt-5.5`, `gpt-5.6-sol`, `gpt-6-astra` — **verified live 2026-10-13** (`gpt-6-sol` does not exist; the kickoff's name was a typo for `gpt-5.6-sol`, and a bad name fails instantly with a 400, so a retry costs nothing) | the default profile's own model — **pass nothing** |
 | brief delivery | a file, `$(cat brief.md)` | `--query-file <path>` (or `-` for stdin) — no shell quoting |
 | report | `-o <report>.md` (the last message) | stdout (`--format text`) |
 | default dir | the configured workspace (a `willia.delegates.codex.dir`) | its own workspace |
@@ -28,13 +28,19 @@ $(npm prefix -g)/bin/codex exec \
 ```
 
 - **Always pass `-m`.** `~/.codex/config.toml` defaults to `gpt-6-astra` at `medium`; relying on
-  the config silently spends the expensive model.
+  the config silently spends the expensive model. The account's catalog lives in
+  `[tui.model_availability_nux]` (`gpt-5.5`, `gpt-5.6-sol`, `gpt-6-astra`), and all three were
+  exercised live on 2026-10-13.
 - Flags verified against `codex-cli 0.153.4 --help`: `-m/--model`, `-c <key=value>`,
   `--approve-for-me`, `-C/--cd`, `-o/--output-last-message`, `--json`, `-s/--sandbox`,
   `--skip-git-repo-check`. `codex exec` also has `resume` / `fork` / `review` subcommands.
-- **Model policy** (the user's rule, by undo cost): `gpt-6-sol` at high for most tasks;
+- **Model policy** (the user's rule, by undo cost): `gpt-5.6-sol` at high for most tasks;
   `gpt-6-astra` at high only where a late catch costs more than the model (the interface-critical
-  and precision-critical steps). Never two large astras in parallel.
+  and precision-critical steps — P0b's prompt transcription is the canonical example); `gpt-5.5` for
+  the smallest mechanical edits. A wrong or unavailable model name fails immediately with a 400, so
+  a mis-typed run wastes seconds, not quota. Never two large astras in parallel.
+- Every run carries its own agent prompt (~6–8 k tokens measured even for a one-word reply), so
+  batch small changes into one brief instead of one run per file.
 - The brief is a **file**, written before the run, and it is what the report is judged against.
   It cites the doc (`ENGINE.md`, `LOOP.md`, …), it never re-describes it.
 - `--json` is available for a stream of events; v1 uses the plain form plus `-o` (simpler to

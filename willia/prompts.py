@@ -5,6 +5,8 @@ the canonical docs/optchat-gist.md section 5 prompt carries the compaction
 instructions and rubric. The compaction task templates remain verbatim.
 """
 
+import importlib.resources
+
 SYSTEM_PROMPT = """You are WillIA, an AI agent that works for one user in a single chat that never
 ends. Each call to you is a turn or a compaction: the view below is followed by
 the user's new message, or by a task starting "Compaction:".
@@ -18,7 +20,7 @@ WillIA's memory: the whole chat between WillIA and the user, oldest first, insid
 
 Each message has a kind:
 - user: the user's words
-- unii: WillIA's replies
+- will: WillIA's replies
 - tool: WillIA's tool calls
 - echo: tool results
 - work: an agent's report, starting "[Name]"
@@ -107,6 +109,17 @@ of them from there too.
 
 OVER_LENGTH_NOTICE = """Too long: your line is {actual_bytes} bytes, over the {node_bytes}-byte limit. Write the whole line again for the same <input>, cutting just enough of the least valuable items to fit before this cut:
 {cut_point}| ← LIMIT"""
+
+
+def default_instructions() -> str:
+    """The shipped user-instructions text (willia/prompt-default.md).
+
+    Read from the package, so an installed copy works; the harness copies it to
+    ~/.willia/prompt.md on first run and the user edits that copy.
+    """
+    return importlib.resources.files("willia").joinpath("prompt-default.md").read_text(
+        encoding="utf-8"
+    ).rstrip()
 
 
 def build_system_prompt(user_instructions: str = "") -> str:
