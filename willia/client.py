@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from . import usage
 from .compactor import CompactionRequest
 from .config import Config
 from .envfile import opencode_go_key
@@ -122,6 +123,13 @@ class Client:
         for index, message in enumerate(messages):
             if not isinstance(message, dict) or not isinstance(message.get("content"), str):
                 raise ValueError(f"messages[{index}].content must be a str")
+
+    def _meter(self, kind: str) -> None:
+        """Record this call's measured usage; never raises into the call path."""
+        if not self.last_usage:
+            return
+        usage.record(self.config.root, kind=kind, model=self.config.model.model,
+                     usage=self.last_usage)
 
     def _send(self, payload: dict, timeout: float) -> Iterator[str]:
         last_error: ClientError | None = None
@@ -260,6 +268,7 @@ class Client:
         finally:
             lines.close()
         self.last_usage = reply.usage
+        self._meter("turn")
         return reply
 
     def summarize(self, request: CompactionRequest) -> str:
@@ -293,6 +302,7 @@ class Client:
             raise ClientError(None, "Malformed completion response") from exc
         if not isinstance(content, str) or not content.strip():
             raise ClientError(None, "Compaction returned no ordinary content")
+        self._meter("compaction")
         return " ".join(content.splitlines()).strip()
 
     def vision(self, image_url: str, question: str, *,
@@ -324,4 +334,5 @@ class Client:
             raise ClientError(None, "Malformed completion response") from exc
         if not isinstance(content, str) or not content.strip():
             raise ClientError(None, "Vision returned no ordinary content")
+        self._meter("vision")
         return content.strip()

@@ -15,9 +15,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import notes, repl, text
+from . import notes, repl, text, usage
 from .chat import Chat
 from .config import Config
+from .envfile import MissingCredential
 from .store import Log
 from .tree import Tree
 
@@ -116,6 +117,36 @@ def _restore_view(config: Config) -> tuple[int, int, int]:
     finally:
         chat.close()
     return covered, records, roots_added
+
+
+def _print_usage(config: Config) -> None:
+    """The local meter plus the account's own plan windows.  Writes nothing."""
+    path = usage.usage_file(config.root)
+    entries = usage.read(path)
+    summary = usage.totals(entries)
+    print(f"Usage log: {path}")
+    print(f"Calls: {summary['calls']}")
+    for name in usage.BUCKETS:
+        print(f"{name}: {summary[name]}")
+    for kind in sorted(summary["by_kind"]):
+        bucket = summary["by_kind"][kind]
+        print(f"{kind}: calls={bucket['calls']} input={bucket['input_tokens']} "
+              f"output={bucket['output_tokens']} cache_read={bucket['cache_read_tokens']} "
+              f"cache_write={bucket['cache_write_tokens']} "
+              f"reasoning={bucket['reasoning_tokens']}")
+    if entries:
+        print(f"Latest call: {entries[-1].get('at')} ({entries[-1].get('kind')})")
+    try:
+        windows = usage.subscription_windows(config)
+    except (OSError, ValueError, MissingCredential) as exc:
+        print(f"Windows: unavailable ({exc})")
+        return
+    reported = [name for name in usage.WINDOWS if isinstance(windows.get(name), dict)]
+    if not reported:
+        print("Windows: none reported for this plan")
+    for name in reported:
+        window = windows[name]
+        print(f"{name}: {window.get('percent')}% resets {window.get('resetsAt')}")
 
 
 def _note_files(raw_paths: list[str], *, recursive: bool) -> list[Path]:
@@ -238,6 +269,8 @@ def main(argv=None) -> int:
     mode.add_argument("--status", action="store_true", help="print chat state and exit")
     mode.add_argument("--restore-view", action="store_true",
                       help="validate and adopt the saved view publication")
+    mode.add_argument("--usage", action="store_true",
+                      help="print the usage meter and the account's plan windows")
     mode.add_argument("--notes", nargs="*", metavar="PATH",
                       help="import markdown files as note records")
     parser.add_argument("--notes-recursive", action="store_true",
@@ -273,6 +306,9 @@ def main(argv=None) -> int:
             covered, records, roots_added = _restore_view(config)
             print(f"Restored view: covered_end={covered} records={records} "
                   f"roots_added={roots_added}")
+            return 0
+        if options.usage:
+            _print_usage(config)
             return 0
         if options.new:
             _archive(config.root)

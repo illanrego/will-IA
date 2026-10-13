@@ -121,6 +121,15 @@ intact for recovery.
 
 ## P2 — tools
 
+**Status (2026-10-13): closed.** P2a (the delegates as real subprocesses) and P2b (the three native
+tools) both landed, and this phase's own Green checks were run by the session with real output:
+a real Codex job through `dispatch`, and once more through a real model turn
+(`probes/p2-live-proof.py`, `probes/p2-turn-proof.py`), plus real `web_search` / `web_extract` /
+`vision` round-trips (`probes/p2b-live-proof.py`). Two defects the live runs caught, neither
+visible to the offline suite: `codex exec` refuses to run outside a git repository, so the frozen
+command needs `--skip-git-repo-check` (the configured delegate workspace is not a repository);
+and the vision route is the Go route with the chat's own model, not OpenRouter.
+
 **Deliverables**
 1. `zoom` / `date` exposed with the renamed schemas and the exact payloads (`TOOLS.md` §2–§3),
    including the prompt-name guard test.
@@ -140,6 +149,11 @@ intact for recovery.
   serialized requests; the Go relay 400s on those).
 
 ## P3 — bootstrap and the first rides
+
+**Status (2026-10-13): the bootstrap and the tooling are in; the rides are his.** 134 `note`
+records were imported from the curated markdowns. The usage meter landed (`willia --usage`,
+`<root>/logs/usage.jsonl`, `WIRE-FORMATS` §9) with a read-only `scripts/session-report.py`, and
+both were exercised against the live account. What remains is item 2: a real ride.
 
 **Deliverables**
 1. Import `~/Documents/coding/markdowns/OPTCHAT_HELLO.md` as `note` records (`notes.import_notes`),

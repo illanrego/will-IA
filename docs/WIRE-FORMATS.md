@@ -257,7 +257,29 @@ See `ENV.md`. Nothing in config may change the system prompt or the tool array p
            "monthly": {"percent": 0.4,  "resetsAt": "…"}}}
 ```
 
-Keys are absent when a window does not apply. Local per-call usage comes from the API `usage`
-object (§1) and widens into the canonical buckets
+Keys are absent when a window does not apply. **Measured live 2026-10-13**
+(`probes/p3-usage-proof.py`): the payload also carries a per-window `"status": "ok"`, and the account
+read `rolling 3% / weekly 12% / monthly 23%` with resets `2026-10-14T00:51:56.000Z`,
+`2026-10-19T00:00:00.000Z`, `2026-11-07T08:47:09.000Z`. The meter keeps each returned window object
+whole, so an extra key is not a boundary change.
+
+Local per-call usage comes from the API `usage` object (§1) and widens into the canonical buckets
 `input_tokens | output_tokens | cache_read_tokens | cache_write_tokens | reasoning_tokens`
-(the names the host normalizes to; the meter must not invent its own).
+(the names the host normalizes to; the meter must not invent its own). The widening is one fixed
+mapping: `prompt_tokens`, `completion_tokens`, `prompt_tokens_details.cached_tokens`,
+`prompt_tokens_details.cache_write_tokens` (else `cache_creation_input_tokens`), and
+`completion_tokens_details.reasoning_tokens`; a field the route did not send widens to 0.
+
+It lands in `<root>/logs/usage.jsonl`, one compact JSON object per call, appended by
+`willia/usage.py`:
+
+```json
+{"at":"2026-10-13T22:05:54.571327+00:00","kind":"turn","model":"deepseek-v4.1-flash",
+ "input_tokens":2266,"output_tokens":14,"cache_read_tokens":2048,"cache_write_tokens":0,
+ "reasoning_tokens":11}
+```
+
+`kind` is the call type (`turn | compaction | vision`). A call that reported no `usage` object is
+**not** recorded at all: an absent object is not a zero-token call. `willia --usage` prints the
+totals beside the account's windows; `scripts/session-report.py` prints the same totals next to the
+chat's other state. Both commands are read-only - neither creates a file.
