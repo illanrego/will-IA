@@ -1,10 +1,33 @@
 # ENGINE.md — the memory engine map
 
 Extracted from `~/Documents/coding/opthermes/optchat/` at tip `fc0b13e`. Signatures are copied
-from the source, not from `CONTRACT.md`. Where the two disagree, **the source is what willia
-vendors**, and the drift is listed in §7.
+from the source, not from `CONTRACT.md`; the drift between that file and the source is listed in §7.
 
-Anchors into the recipe: `~/.hermes/cache/scratch/optchat-gist/optchat.md` (§numbers cite it).
+## 0. Canon and precedence
+
+**One canon: `docs/optchat-gist.md`** — Taelin's design, vendored in this repo. Every "§N" in this
+doc set is one of its headings. Everything else is derived and corrigible:
+
+| Layer | What it is | Authority |
+|---|---|---|
+| `docs/optchat-gist.md` | Taelin's design of the mechanism: the log, the tree, the view, compactions, the cache, a turn | **canonical** |
+| this doc set (`docs/*.md`) | our reading of the canon into a build contract | derived; red-lined by the user |
+| `willia/*.py` | an implementation of that mechanism, vendored from opthermes and now owned by us | corrigible — never an authority |
+| the rule | if the code and the canon disagree, **the canon wins**: the code changes, with a test | |
+| `opthermes/` (CONTRACT.md, docs/optchat-spec.md, FINDINGS.md, the parked modules) | the previous project: the same mechanism, coupled to the Hermes engine host | evidence and history only — never authority |
+| UniiChat's *environment* inside the canon (its devices, computers, its cheap model, its tool set, its subagent policy) | how Taelin's own agent runs | **ours to choose differently** — `TOOLS.md` §9, `WIRE-FORMATS.md` §1 |
+
+Two consequences, stated plainly because the previous project blurred them:
+
+1. **The canon mixes mechanism and environment.** The mechanism is taken verbatim. The environment
+   is ours: OpenCode Go and `deepseek-v4.1-flash` instead of Claude Haiku, our tool array instead
+   of a device shell, our delegates instead of its subagents. The computers paragraph is already
+   dropped from the prompt for exactly this reason (§5.1).
+2. **The vendored code is an implementation, not the spec.** Where it chooses something the canon
+   leaves open — `View.context_view`'s pinned snapshots, the integrity checks in `store`/`tree`,
+   `media`'s archive — this doc says so, and the choice is ours.
+
+Anchors into the canon: `docs/optchat-gist.md`.
 
 ## 1. Vendored modules (the Reuse set)
 
@@ -410,6 +433,10 @@ appears in the system prompt (that guard exists in opthermes; port it in P0).
 
 ## 7. Drift: `CONTRACT.md` (v1, 2026-10-10) vs the source
 
+`CONTRACT.md` is the **previous project's** contract — the same mechanism coupled to the Hermes
+engine host — and `docs/optchat-spec.md` is that project's restatement. Both are recorded here as
+history and evidence, never as authority (§0).
+
 The contract's "Interfaces" block is the v1 skeleton; 19 revisions later the source has grown.
 Recorded so nobody briefs from the stale block:
 
@@ -447,3 +474,34 @@ kept nonetheless says why. Every row is P0 work.
 
 After these, nothing in the program exists for the host's sake: the harness is ours and the memory
 modules are the design's.
+
+## 9. Canon conformance: the mechanism claims, and where the code stands
+
+Checked claim by claim against `docs/optchat-gist.md` at vendoring time. "Verbatim" means the code
+implements the canon's rule; "choice" means the canon states a rule and the code picks a mechanism.
+
+| Canon (§) | Claim | Where it lives | Verdict |
+|---|---|---|---|
+| §1 | append only; flush every write; never edit or delete; one owner holding a lock | `store.Log` (`flock` `LOCK_EX\|LOCK_NB`, `LogLockedError`, per-record `fsync`, append-only index) | verbatim (fsync is stronger than "flush") |
+| §1 | the six kinds; thoughts never logged | `store.KINDS`, the log classifier (`LOOP.md` §4) | verbatim (`unii` → `will`) |
+| §1 | tool output clipped head+tail, 30,000 chars | harness (`LOOP.md` §4; the parked adapter held it) | verbatim |
+| §1 | other long text is never cut: several messages in a row | `text.split_text` / `split_for_kind` | verbatim |
+| §2 | node ≤ 512 bytes; a source that fits is its own node with no model call; two short lines joined by a newline; built once, never rebuilt | `Tree.free_text`, `Compactor.seed`, `Tree.put` | verbatim |
+| §3 | `id+n\|text` lines, newlines as spaces, oldest first, no dates, summaries only | `View.render` | verbatim |
+| §3 | `due = (T - last) / 2^l`, most due first, oldest among equals | `view.due` + the rank `(due, -(i << l), pos)` | verbatim |
+| §3 | sawtooth: batch 128,000 → 64,000; only pairs whose parent is built | `View._merge_pairs` (batch-only entry point) | verbatim |
+| §3 | save the view, load it at start, **never rebuild it** | `View.save` / `View.load` / `ViewStateUnavailable` | verbatim |
+| §4 | a compaction is a call like a turn: same system prompt, same tools, its own 16–32 KB `<chat>` view, the task verbatim with the 512-dash ruler | `Compactor._request`, `View.context_view`, `prompts.py` templates | verbatim (the system/tools split is corrected in §5.1) |
+| §4 | retry oversize ≤ 5, keep the shortest; failures retried at the next pass | `Compactor._summarize` | verbatim |
+| §4 | ≤ 8 calls at once; a node starts once fewer than 8 lines before it are unbuilt; a merge needs both halves; the view stops at the first unbuilt line; queue ready nodes, never scan | `Compactor._run_pending` (`COMPACT_CONCURRENCY`, `_unbuilt_roots` admission), `Tree._ready`, `Compactor._pending` | verbatim |
+| §4 | "the model is a cheap one" | ours: the Go route and `deepseek-v4.1-flash` | **environment** — ours to choose |
+| §5 | one system prompt for turns and compactions; the user's own instructions follow it | `prompts.py` + `prompt.md` (`ENV.md` §4) | verbatim — **P0b rewrites the text** |
+| §6 | the turn: hand a message to a running call between tool calls; else wait until everything before it is summarized; render before logging; log as it happens; nothing carries over; per-turn state after the view | `LOOP.md` §1–§2 | verbatim (the wait is real for the first time — `LOOP.md` §2) |
+| §6 | `zoom(id, n)`: `n` a power of two, `id` a multiple of `n`, `n = 1` the whole message with its images; `date(id)` | `tools.zoom` / `tools.date` | verbatim |
+| §6 | a subagent's steps stay in its own log; its report returns as one `work` message; the master never waits or polls | `DELEGATES.md` | verbatim |
+| §7 | the thirteen mistakes | `LOOP.md` §9 as code rules | verbatim |
+
+**Choices the canon leaves open** (ours, not deviations): `View.context_view`'s pinned per-target
+snapshots and its maintained working view (§4 states the rule, not the mechanism); the duplicate-id
+/ gap / refusal integrity checks in `store` and `tree`; `media`'s separate archive with reviving
+pending failures; `View(records=…)`'s explicit-missing-state rule; and everything in §8.

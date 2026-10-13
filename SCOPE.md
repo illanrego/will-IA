@@ -53,6 +53,10 @@ or Hermes, and non-coding tools implemented natively.
 > checkpoint protocol, the host media envelope, the child index, and breakpoint cache planning. See
 > `docs/ENGINE.md` §8. The design (Taelin's recipe) is the spec; tool parity with Hermes returns
 > later as native tools (`docs/TOOLS.md` §9, phase P4).
+>
+> **Canon:** Taelin's design only, vendored at `docs/optchat-gist.md`. This doc set is its reading;
+> the engine is our implementation of it and may be re-derived; the previous project's records
+> (CONTRACT.md, docs/optchat-spec.md, FINDINGS.md) are history, never authority — `docs/ENGINE.md` §0.
 
 ## Left to code (the harness — ~1.5–2k lines, straightforward)
 

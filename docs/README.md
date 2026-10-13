@@ -26,9 +26,12 @@ commit of its own — never edited in place.
 
 ## Non-negotiables
 
-- **Our own program.** No Hermes fork, wrapper, plugin, or shared code with any host. Codex and
+- **Our own thing.** No Hermes fork, wrapper, plugin, or shared code with any host. Codex and
   Hermes are reached only as external subprocesses, the way any program calls `git`. A broken
   delegate is swapped, not absorbed.
+- **One canon: Taelin's design** (`docs/optchat-gist.md`). Our docs are its reading, the vendored
+  code is an implementation we may re-derive, and the previous project's records are history —
+  `ENGINE.md` §0.
 - **The memory is the design.** One append-only log; a binary summary tree; a constant-size view
   (64–128 KB sawtooth); zoom/date navigation; compactions shaped like turns so they read the
   turns' cache prefix. `SCOPE.md` holds the invariants; `ENGINE.md` shows which module enforces each.
