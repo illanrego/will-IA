@@ -468,7 +468,7 @@ kept nonetheless says why. Every row is P0 work.
 | 8.6 | `cache.py` (breakpoint planning) | **do not vendor** | the host's cache seam; the Go route is automatic-prefix and the design prescribes no marks. |
 | 8.7 | `engine.py`, `turn_view.py`, `shim.py`, `summarizer.py`, `__init__.py` | **never vendored** | the host adapter, its turn view, its cache shim, its auxiliary route, its collector. |
 | 8.8 | `Log`/`Tree`/`View(read_only=True)` lock-free foreign handles | **keep, unused in v1** | they serve a *live* second process owning a child chat; v1's children are our own jobs under our own root. |
-| 8.9 | `Compactor`'s `contextvars.copy_context()` per job | **review in P0** | it carried the host's routing ContextVar into the worker pool; willia passes the route explicitly — if the concurrency tests pass without it, drop it. |
+| 8.9 | `Compactor`'s `contextvars.copy_context()` per job | **kept (P0b reviewed it)** | the reason it existed was the host's routing ContextVar, but removing it fails the vendored inheritance/isolation test — the per-job context copy is load-bearing on its own. The comment in the file records exactly that. |
 | 8.10 | `prompts.SYSTEM_PROMPT` (the seven-line condensation) | **replaced** | host-era; the design's §5 text replaces it (§5.1). |
 | 8.11 | `Record.id` → `Record.i` | **rename** | the recipe's log line is `{i, kind, text, size, date}` and the tree line already uses `{l, i, …}`. Tool payloads keep `id`/`n`. |
 | 8.12 | `Compactor.settle(model_calls=False)` | **keep, re-justified** | the vendor's reason was the host's uninterruptible synchronous hook; willia keeps it as a turn-side *budget* (`LOOP.md` §2). |

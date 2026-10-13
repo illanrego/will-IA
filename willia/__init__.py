@@ -1,10 +1,10 @@
-"""will.I.A. - the memory engine.
+"""will.I.A. is one endless chat where the chat itself is the memory.
 
-Vendored from the opthermes engine (commit fc0b13e) with the rename list applied;
-the host-coupled modules were left behind. PROVISIONAL: P0b owns the final package
-root (the exported surface here is only what the vendored tests need).
+Vendored from the opthermes engine at fc0b13e with the renames and section 8
+deletions in docs/ENGINE.md applied. The canon is docs/optchat-gist.md.
 """
 
+from . import prompts, toolkit
 from .compactor import COMPACT_CONCURRENCY, CompactionRequest, Compactor, Summarizer
 from .notes import import_notes
 from .store import KINDS, Log, LogLockedError, Record
@@ -14,5 +14,5 @@ from .view import View, ViewStateUnavailable, due
 __all__ = [
     "COMPACT_CONCURRENCY", "CompactionRequest", "Compactor", "Summarizer",
     "KINDS", "Line", "Log", "LogLockedError", "Record", "Tree", "View",
-    "ViewStateUnavailable", "due", "import_notes",
+    "ViewStateUnavailable", "due", "import_notes", "prompts", "toolkit",
 ]

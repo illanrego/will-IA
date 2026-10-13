@@ -1,4 +1,9 @@
-"""Queue-driven, build-once compactions."""
+"""Queue-driven, build-once compactions using the turn's system prompt and tools.
+
+Vendored from the opthermes engine at fc0b13e with docs/ENGINE.md section 6
+renames and section 8 deletions. Per section 5.1, the task is the template alone:
+the shared system prompt already carries the compaction instructions and rubric.
+"""
 
 from __future__ import annotations
 
@@ -11,8 +16,7 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
-from .prompts import (COMPACTION_MERGE_TASK, COMPACTION_SYSTEM, COMPACTION_TASK,
-                      OVER_LENGTH_NOTICE, RUBRIC)
+from .prompts import COMPACTION_MERGE_TASK, COMPACTION_TASK, OVER_LENGTH_NOTICE
 from .tree import Tree
 from .view import View
 
@@ -113,7 +117,7 @@ class Compactor:
             system=self.system,
             context=self.view.context_view(target=(l, i))
             if self.view is not None else "",
-            task=COMPACTION_SYSTEM.format(rubric=RUBRIC) + "\n\n" + task,
+            task=task,
             tools=self.tools,
         )
 
@@ -225,8 +229,7 @@ class Compactor:
                                               RuntimeWarning, stacklevel=2)
                                 deferred.append(key)
                                 continue
-                            # Each job needs its own snapshot: a Context cannot be
-                            # entered concurrently, and workers must inherit the caller.
+                            # Kept: removing per-job context copies fails the inheritance/isolation test.
                             context = contextvars.copy_context()
                             batch.append((key, executor.submit(
                                 context.run, self._summarize, request, key)))
