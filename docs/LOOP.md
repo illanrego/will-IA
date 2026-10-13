@@ -161,6 +161,7 @@ design**, and would be labelled as such, not as a restoration of fidelity.
 | chat API error (4xx/5xx/429) | bounded retry with backoff, then end the turn and print the error. Nothing is logged for the failed call; what was already logged stands (append-only). |
 | a call hangs | **every chat and compaction call carries a timeout** (turn ≈120 s, compaction ≈60 s; the host learned this the hard way — a hung summarizer parked a thread for 600 s). A timed-out turn call is retried bounded, a timed-out compaction is deferred. Without it one hung socket stalls the pump and the turn. |
 | compaction call fails | `RuntimeWarning`, node deferred, retried at the next pass (vendored behaviour). |
+| a capped call with thinking on | returns **empty content** — the cap is spent on reasoning (`WIRE-FORMATS` §1). Compactions therefore run **thinking-disabled** whenever a cap is set. |
 | the report is over 512 bytes | ruler retry (`OVER_LENGTH_NOTICE`), keep the shortest, ≤5 tries (vendored). |
 | log append fails | the `Log` latches `_append_failed` and refuses further appends. The loop stops loudly and keeps the pending text in the terminal; it does not pretend the message was saved. |
 | tool raises | the dispatcher converts it to `{"error": ...}` and logs it as an `echo`; the turn continues. |

@@ -53,6 +53,11 @@ Green means the check at the bottom of each phase, run by the session, not by th
 **Green (all run by the session, with real output)**
 - A real multi-turn conversation runs in the REPL: 3+ turns, a tool call, a long paste that lands
   as several records, and a long tool result that lands clipped.
+- Every request carries a real `User-Agent` and the chat's stored `x-opencode-session`; a request
+  without the latter is proven to fail (400 MissingSessionID), so the client's header set is
+  covered by a test against a fake transport.
+- Compactions run thinking-disabled with the cap, produce a ≤512-byte line, and the measured
+  `cached_tokens` for turn→turn and turn→compaction are recorded in `WIRE-FORMATS` §1.
 - `~/.willia/` contains `main/*.jsonl`, `tree/*.jsonl`, `view.json`, `lock`; the log ids are dense;
   `view.json` covers a contiguous prefix; every pair in it has a built node after the first drain.
 - A compaction actually ran: a `tree/` node exists whose covering messages are the last few

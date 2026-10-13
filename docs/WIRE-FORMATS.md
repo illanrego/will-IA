@@ -19,7 +19,7 @@ Verified from the live host profile
 | chat endpoint | `POST {base}/chat/completions` |
 | model listing | `GET {base}/models` |
 | usage windows | `GET https://opencode.ai/zen/go/v1/usage` (literal `/v1`, not the runtime base) |
-| headers | `Authorization: Bearer $OPENCODE_GO_API_KEY`, `Content-Type: application/json`, plus attribution: `HTTP-Referer: https://hermes-agent.nousresearch.com`, `X-Title: <app name>`, `User-Agent: <app>/<version>` |
+| headers | `Authorization: Bearer $OPENCODE_GO_API_KEY`, `Content-Type: application/json`, a **real `User-Agent`** (Cloudflare answers `403 error code: 1010` to a bare library user-agent), **`x-opencode-session`** (see below — the request 400s without it), and the attribution pair `HTTP-Referer` / `X-Title` |
 
 **Request body (turns and compactions):**
 
@@ -43,26 +43,65 @@ Verified from the live host profile
 - **Every request carries a timeout** (turn ≈120 s, compaction ≈60 s): the client owns it, because
   the vendored compactor has none and a hung call would park a drain thread indefinitely
   (`LOOP.md` §7).
-- **Reasoning knobs (DeepSeek v4 family on Go).** Copied from
-  `agent/reasoning_effort.thinking_toggle_extras(reasoning_config, DEEPSEEK_V4_EFFORTS, DEEPSEEK_V4_OVERRIDES)`:
-  `DEEPSEEK_V4_EFFORTS = ("low","medium","high","max")`, `DEEPSEEK_V4_OVERRIDES = {"xhigh":"max"}`.
-  - a mapped effort → top-level `"reasoning_effort": "<low|medium|high|max>"`
-  - `enabled: false` → body `"thinking": {"type": "disabled"}`
-  - anything unmappable → body `"thinking": {"type": "enabled"}`
-  The host comment adds that DeepSeek wants the toggle on **every** request (omitting it defaults
-  thinking on and then demands `reasoning_content` echoes). willia pins **one** form once,
-  verifies it live in P1, and never varies it per turn (a varying knob is a varying prefix — the
-  cache rule, §3.3). `[VERIFY in P1]`
-- `max_tokens` is **not** sent unless a budget is chosen; the relay's own default is 262,144, and
-  a per-model cap exists for one model only. `[VERIFY in P1]`
+**`x-opencode-session` — required, and the cache's keystone (measured).** A request without it is
+refused: `400 {"type":"MissingSessionID", "message":"Request is missing x-opencode-session and cannot
+be routed efficiently…"}`. The value only has to be opaque and *consistent per conversation*: the
+relay pins every request that shares it to the same upstream backend, which is what keeps that
+conversation's prompt cache warm. Compactions must carry the **same** value as the turns —
+auxiliary calls resolve the same conversation scope in the host for exactly this reason. So willia
+generates **one value per chat** at creation, stores it beside `view.json`, and sends it on every
+call; regenerating it (or restarting with a new one) moves the chat to another backend and the cache
+goes cold. `[verified 2026-10-13: absent -> 400 MissingSessionID; present -> 200]`
+
+**Reasoning knobs (DeepSeek v4 on Go) — measured, not inferred.**
+
+| Request | Behaviour |
+|---|---|
+| no reasoning fields | **thinking is on by default** (`reasoning_content` returned, ~15 reasoning tokens on a one-line ask) |
+| top-level `reasoning_effort: "low"\|"medium"\|"high"\|"max"` | accepted **alone**; no `thinking` toggle needed; thinking on |
+| `"thinking": {"type": "disabled"}` | accepted; **no** `reasoning_content`, and the prompt accounts far smaller (9 vs 35 tokens on the same tiny ask) |
+| `"thinking": {"type": "enabled"}` | identical to the default |
+
+- **Reasoning is never echoed back and never logged.** A follow-up turn whose assistant message
+  carries only `content` (no `reasoning_content`) is **200 OK** — the "demands echoes" warning in
+  the host's comments did not reproduce. Echoing it is also worse: 424 reasoning tokens vs 145 for
+  the same follow-up. The canon's own rule ("thoughts are shown but never logged") is therefore free
+  to obey.
+- **`max_tokens` caps reasoning *and* content together — the cap trap.** With thinking on, a small
+  cap is consumed entirely by reasoning and the call returns **empty content** with
+  `finish_reason: "length"` (measured: 700 of 700 tokens spent reasoning, `content: ""`). A capped
+  call must therefore run with thinking disabled (`LOOP.md` §7).
+- **The setting does not partition the cache** (measured): the same prefix served with thinking on
+  and then off returns `cached_tokens: 2688` both ways. Turns and compactions may use different
+  settings without paying for a cold prefix.
+- willia's choice: **turns** at a pinned `reasoning_effort`; **compactions with thinking disabled
+  plus a ~700-token cap** — measured to produce a compliant 408-byte line in 153 output tokens with
+  zero reasoning (the canon's cheap-model rule, satisfied by the toggle instead of a second model).
+- A *different* model for compactions is therefore unnecessary for cost or time. Whether the relay
+  shares one cache across two models on one session id is **untested**; if it is ever wanted, test
+  it with the same prefix on model A then model B and read `cached_tokens`. `[P1, optional]`
 
 **Response (non-streaming):** standard chat completion —
 `choices[0].message.{role, content, tool_calls[], reasoning_content?}`,
 `choices[0].finish_reason` (`stop` / `tool_calls` / `length`),
-`usage.{prompt_tokens, completion_tokens, total_tokens, prompt_tokens_details.*}`.
-`[VERIFY in P1]` the exact `prompt_tokens_details` keys the Go relay returns for DeepSeek cache
-hits; the usage meter depends on it, so P1 captures one raw response and this doc is corrected
-with the real keys.
+`usage.{prompt_tokens, completion_tokens, total_tokens, prompt_tokens_details.cached_tokens,
+completion_tokens_details.reasoning_tokens}`.
+
+**Usage fields, measured** (this is the meter's input, and it settles the cache question):
+
+```
+{"prompt_tokens": 3533, "completion_tokens": 400, "total_tokens": 3933,
+ "prompt_tokens_details": {"cached_tokens": 3456},
+ "completion_tokens_details": {"reasoning_tokens": 400}}
+```
+
+- The cache field is **`usage.prompt_tokens_details.cached_tokens`** — no other key is needed.
+- An identical 3,533-token prefix on the second call reported **3,456 cached** (~98%) with the same
+  `x-opencode-session`: the design's economics hold on this relay, and the cache survives a change
+  of the reasoning setting.
+- Two consecutive compaction-shaped calls on the same session shared 896 of 1,022 prompt tokens.
+- `reasoning_tokens` is the number to watch: it is what makes a "cheap" compaction expensive in
+  *time*, which is why compactions run with thinking disabled.
 
 **Streaming:** SSE, `data: {json}` lines, `data: [DONE]`. Deltas carry
 `choices[0].delta.{content?, reasoning_content?}` and, for tool calls, indexed fragments

@@ -32,6 +32,7 @@
     <label>/                    a delegate's own chat: main/, tree/, view.json (DELEGATES.md §5)
   jobs/<label>-<ts>/            delegate working dirs: brief.md, report.md, run.log
   backups/view.json             the last good view publication (recovery, LOOP.md §5)
+  session.json                  the chat's x-opencode-session value (written once, never regenerated)
   logs/willia.log               the harness's own log (the engine warns go here too)
   config.json                   the config below
   prompt.md                     the fixed system prompt (see §4)
@@ -79,7 +80,8 @@
   "model": {"provider": "opencode-go",
             "base_url": "https://opencode.ai/zen/go/v1",
             "model": "deepseek-v4.1-flash",
-            "reasoning_effort": null},
+            "turns": {"reasoning_effort": "medium"},
+            "compactions": {"thinking_disabled": true, "max_tokens": 700}},
   "view_min_bytes": 64000, "view_max_bytes": 128000, "node_bytes": 512,
   "compact_view_min_bytes": 16000, "compact_view_max_bytes": 32000,
   "compact_enabled": true, "compact_concurrency": 8, "compact_max_retries": 5,
@@ -98,9 +100,12 @@
 ```
 
 - Keys are additive; an unknown key is a **warning**, not a crash.
-- `reasoning_effort: null` means "send nothing" and is the v1 default: it is one less variable in
-  the cache prefix. Setting it pins one value for every call, turns and compactions alike
-  (`WIRE-FORMATS` §1).
+- **Reasoning is per call type, measured** (`WIRE-FORMATS` §1): turns carry a pinned
+  `reasoning_effort`; compactions run with `thinking: {"type": "disabled"}` and a small `max_tokens`
+  — a cap with thinking on returns empty content, and the setting does not partition the prompt
+  cache, so the two call types can differ safely.
+- `session.json` holds the chat's `x-opencode-session` value (opaque, generated once, **never
+  regenerated** — it pins the upstream backend that keeps the prompt cache warm).
 - Nothing in config can vary the system prompt or the tool array per turn.
 
 ## 6. The launcher
