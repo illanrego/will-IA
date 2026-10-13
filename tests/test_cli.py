@@ -62,6 +62,14 @@ def test_help_and_unknown_flags_write_nothing(home, capsys):
     assert not (home / ".willia").exists()
 
 
+def test_restore_view_flag_reports_adoption(home, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_restore_view", lambda config: (3, 5, 2))
+
+    assert cli.main(["--restore-view"]) == 0
+    assert capsys.readouterr().out.strip() == (
+        "Restored view: covered_end=3 records=5 roots_added=2")
+
+
 def test_locked_new_is_refused(home, capsys):
     chat = Chat.open(Config.load(), client=FakeClient())
     try:

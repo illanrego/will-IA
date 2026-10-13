@@ -38,6 +38,8 @@ class ModelConfig:
     compactions: CompactionConfig = field(default_factory=CompactionConfig)
     turn_timeout_s: int = 120
     compaction_timeout_s: int = 60
+    drain_join_s: int = 5
+    watchdog_grace_s: int = 60
 
 
 @dataclass(frozen=True)
@@ -214,7 +216,8 @@ def _compactions(data: dict[str, Any]) -> CompactionConfig:
 def _model(data: dict[str, Any]) -> ModelConfig:
     known = {
         "provider", "base_url", "model", "referer", "turns", "compactions",
-        "turn_timeout_s", "compaction_timeout_s",
+        "turn_timeout_s", "compaction_timeout_s", "drain_join_s",
+        "watchdog_grace_s",
     }
     _warn_unknown(data, known, "model")
     return ModelConfig(
@@ -228,6 +231,8 @@ def _model(data: dict[str, Any]) -> ModelConfig:
         compaction_timeout_s=_expect(
             data, "compaction_timeout_s", 60, int, "model"
         ),
+        drain_join_s=_expect(data, "drain_join_s", 5, int, "model"),
+        watchdog_grace_s=_expect(data, "watchdog_grace_s", 60, int, "model"),
     )
 
 

@@ -17,6 +17,8 @@ def test_absent_file_uses_documented_defaults(tmp_path):
     assert config.model.compactions.max_tokens == 700
     assert config.model.turn_timeout_s == 120
     assert config.model.compaction_timeout_s == 60
+    assert config.model.drain_join_s == 5
+    assert config.model.watchdog_grace_s == 60
     assert config.view_min_bytes == 64_000
     assert config.compact_concurrency == 8
     assert config.web.max_results == 5
@@ -41,6 +43,16 @@ def test_partial_nested_object_keeps_other_defaults(tmp_path):
     assert config.web.backend == "ddgs"
 
 
+def test_pump_timings_load_from_model_config(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text('{"model":{"drain_join_s":2,"watchdog_grace_s":0}}')
+
+    config = Config.load(path)
+
+    assert config.model.drain_join_s == 2
+    assert config.model.watchdog_grace_s == 0
+
+
 def test_unknown_key_warns_without_raising(tmp_path, caplog):
     path = tmp_path / "config.json"
     path.write_text('{"model":{"future_knob":true},"future_section":{}}')
@@ -59,6 +71,8 @@ def test_unknown_key_warns_without_raising(tmp_path, caplog):
         ('{"view_min_bytes":"large"}', "view_min_bytes"),
         ('{"model":{"turns":[]}}', "model.turns"),
         ('{"vision":{"model":5}}', "vision.model"),
+        ('{"model":{"drain_join_s":true}}', "model.drain_join_s"),
+        ('{"model":{"watchdog_grace_s":"soon"}}', "model.watchdog_grace_s"),
     ],
 )
 def test_wrong_known_type_raises_with_key(tmp_path, body, key):

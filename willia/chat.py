@@ -1,8 +1,7 @@
 """Own the durable chat and the request assembled for each turn.
 
 The view is rendered before input is logged and frozen across tool rounds.
-Compaction runs without model calls at turn start, then in a bounded synchronous
-pass after publication; only this owner mutates the memory engine.
+One harness lock serializes the turn with the background compaction pump.
 """
 
 from __future__ import annotations
@@ -10,7 +9,9 @@ from __future__ import annotations
 import json
 import queue
 import shutil
+import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from . import prompts, records, toolkit
@@ -32,6 +33,16 @@ class Chat:
         self.inbox = None
         self._closed = False
         self._diagnostics = None
+        self._engine_lock = threading.RLock()
+        self._drain_lock = threading.Lock()
+        self._drain: threading.Thread | None = None
+        self.last_pass_start: str | None = None
+        self.last_pass_finish: str | None = None
+        self.last_pass_built: int | None = None
+        self.last_pass_error: str | None = None
+        self._last_pass_finished_monotonic: float | None = None
+        self._zero_build_passes = 0
+        self._stuck_reported = False
         paths = config.paths
         # Read-only preflight precedes even lock creation and torn-tail repairs.
         # Losing the view must leave every existing byte available for recovery.
@@ -65,26 +76,30 @@ class Chat:
                                        max_retries=config.compact_max_retries, view=self.view)
             self.compactor.system = self.system
             self.compactor.tools = self.tools
-            changed = False
-            for i in range(self.view._end(), self.log.count()):
-                self.view.add_root(i)
-                changed = True
-            for i in range(self.log.count()):
-                if self.tree.get(0, i) is None:
-                    record = self.log.get(i)
-                    if record is None:
-                        raise ValueError(f"Cannot seed refused log record {i}")
-                    self.compactor.seed(record.i, record.text, record.kind)
+            with self._engine():
+                changed = False
+                for i in range(self.view._end(), self.log.count()):
+                    self.view.add_root(i)
                     changed = True
-            if changed:
-                self.view.merge_batch(self.log.count())
+                for i in range(self.log.count()):
+                    if self.tree.get(0, i) is None:
+                        record = self.log.get(i)
+                        if record is None:
+                            raise ValueError(f"Cannot seed refused log record {i}")
+                        self.compactor.seed(record.i, record.text, record.kind)
+                        changed = True
+                if changed:
+                    self.view.merge_batch(self.log.count())
             self.save()
-            self._pump()
             self._diagnostics = (paths.logs_dir / "willia.log").open("a", encoding="utf-8")
             self._diagnostics.write(
                 f"{datetime.now(timezone.utc).isoformat()} startup root={self.root} "
                 f"session={self.session[:8]} records={self.log.count()}\n")
             self._diagnostics.flush()
+            drain = self.start_drain()
+            # Give an immediately satisfiable reconciliation pass a scheduling
+            # slice; real model work remains in the daemon after this short cap.
+            drain.join(min(config.model.drain_join_s, 0.1))
             return self
         except BaseException:
             self.log.close()
@@ -95,13 +110,21 @@ class Chat:
     def _summarize(self, request):
         return self.client.summarize(request)
 
+    @contextmanager
+    def _engine(self):
+        """Serialize every access to the mutable memory engine."""
+        with self._engine_lock:
+            yield
+
     def _log_message(self, message: dict, tool_name: str | None = None) -> list[str]:
         chunks = []
-        for kind, text in records.classify(message, self.config.node_bytes, tool_name):
-            i = self.log.append(kind, text)
-            self.compactor.seed(i, text, kind)
-            self.view.add_root(i)
-            chunks.append(text)
+        classified = records.classify(message, self.config.node_bytes, tool_name)
+        with self._engine():
+            for kind, text in classified:
+                i = self.log.append(kind, text)
+                self.compactor.seed(i, text, kind)
+                self.view.add_root(i)
+                chunks.append(text)
         return chunks
 
     def _users(self, texts: list[str]) -> list[dict]:
@@ -142,8 +165,14 @@ class Chat:
         return message
 
     def turn(self, texts: list[str]) -> None:
-        self.compactor.settle(max_nodes=64, timeout_s=20.0, model_calls=False)
-        view_text = self.view.render()
+        self.check_liveness()
+        with self._engine():
+            self.compactor.settle(max_nodes=64, timeout_s=20.0, model_calls=False)
+        drain = self._drain
+        if drain is not None and drain.is_alive() and drain is not threading.current_thread():
+            drain.join(self.config.model.drain_join_s)
+        with self._engine():
+            view_text = self.view.render()
         request = [{"role": "system", "content": self.system},
                    {"role": "assistant", "content": view_text}]
         try:
@@ -174,8 +203,11 @@ class Chat:
                         arguments, ensure_ascii=False)
                     displayed = displayed.replace("\r", "\\r").replace("\n", "\\n")
                     print(f"→ {call.name} {displayed}", flush=True)
-                    result = dispatch(call.name, arguments, log=self.log, tree=self.tree,
-                                      view=self.view, root=self.root, node_bytes=self.config.node_bytes)
+                    with self._engine():
+                        result = dispatch(
+                            call.name, arguments, log=self.log, tree=self.tree,
+                            view=self.view, root=self.root,
+                            node_bytes=self.config.node_bytes)
                     message = {"role": "tool", "tool_call_id": call.id, "content": result}
                     self._log_message(message, call.name)
                     request.append(message)
@@ -187,21 +219,115 @@ class Chat:
             self.end_turn()
 
     def save(self) -> None:
+        with self._engine():
+            self._save_locked()
+
+    def _save_locked(self) -> None:
         self.tree.save()
         self.view.save()
         shutil.copyfile(self.config.view_file, self.config.view_backup_file)
 
-    def _pump(self) -> None:
-        self.compactor.run_pending(
-            limit=self.config.compact_concurrency, deadline=time.monotonic() + 20.0,
-            model_calls=self.config.compact_enabled)
-        # Even a deferred pass can retain a context or advance a merge batch.
-        # Publish those selections along with any newly built nodes.
-        self.save()
+    def _work_locked(self) -> bool:
+        return bool(self.compactor._pending) or not self.view.settled()
+
+    def _record_pass(self, built: int, error: str | None, work_remains: bool,
+                     queued: int) -> None:
+        self.last_pass_finish = datetime.now(timezone.utc).isoformat()
+        self._last_pass_finished_monotonic = time.monotonic()
+        self.last_pass_built = built
+        self.last_pass_error = error
+        if built or not work_remains:
+            self._zero_build_passes = 0
+            self._stuck_reported = False
+            return
+        self._zero_build_passes += 1
+        if self._zero_build_passes < 2 or self._stuck_reported:
+            return
+        line = (
+            f"{datetime.now(timezone.utc).isoformat()} WATCHDOG STUCK "
+            f"queued={queued} last_error={error or 'none'}\n"
+        )
+        if self._diagnostics is not None:
+            self._diagnostics.write(line)
+            self._diagnostics.flush()
+        self._stuck_reported = True
+
+    def _run_pass(self, *, deadline: float | None = None) -> int:
+        self.last_pass_start = datetime.now(timezone.utc).isoformat()
+        built = 0
+        error = None
+        work_remains = True
+        queued = 0
+        try:
+            with self._engine():
+                built = self.compactor.run_pending(
+                    limit=self.config.compact_concurrency,
+                    deadline=deadline,
+                    model_calls=True,
+                )
+                # A deferred pass can retain a context or advance a merge batch.
+                self._save_locked()
+                work_remains = self._work_locked()
+                queued = len(self.compactor._pending)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            try:
+                with self._engine():
+                    work_remains = self._work_locked()
+                    queued = len(self.compactor._pending)
+            except Exception:
+                work_remains = True
+        self._record_pass(built, error, work_remains, queued)
+        return built
+
+    def _pump(self) -> int:
+        """Run the retained synchronous, deadline-bounded end-turn pass."""
+        return self._run_pass(deadline=time.monotonic() + 20.0)
+
+    def _drain_once(self) -> None:
+        try:
+            with self._engine():
+                work_remains = self._work_locked()
+            if work_remains:
+                self._run_pass()
+        finally:
+            if self._closed and self._diagnostics is not None:
+                self._diagnostics.close()
+                self._diagnostics = None
+
+    def start_drain(self) -> threading.Thread:
+        """Start one daemon compaction pass, or return the pass already running."""
+        with self._drain_lock:
+            if self._drain is not None and self._drain.is_alive():
+                return self._drain
+            self._drain = threading.Thread(
+                target=self._drain_once, name="willia-compaction-drain", daemon=True)
+            self._drain.start()
+            return self._drain
+
+    def check_liveness(self) -> bool:
+        """Drive a stale queue once and make repeated zero-progress passes loud."""
+        drain = self._drain
+        if drain is not None and drain.is_alive():
+            return False
+        with self._engine():
+            work_remains = self._work_locked()
+        if not work_remains:
+            return False
+        finished = self._last_pass_finished_monotonic
+        if (finished is not None
+                and time.monotonic() - finished < self.config.model.watchdog_grace_s):
+            return False
+        self._run_pass(deadline=time.monotonic() + 20.0)
+        return True
 
     def end_turn(self) -> None:
         self.save()
-        self._pump()
+        watchdog_ran = self.check_liveness()
+        drain = self._drain
+        if not watchdog_ran and (drain is None or not drain.is_alive()):
+            self._pump()
+        self.start_drain()
         usage = self.client.last_usage
         cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
         reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
@@ -210,20 +336,41 @@ class Chat:
               f"reasoning_tokens={usage.get('reasoning_tokens', reasoning)}", flush=True)
 
     def status(self) -> list[str]:
+        drain = self._drain
+        with self._engine():
+            work_remains = self._work_locked()
+            view_bytes = len(self.view.render().encode("utf-8"))
+            unbuilt = len(self.compactor._queued)
+        if drain is not None and drain.is_alive():
+            pump = "summarizing"
+        elif self._stuck_reported and work_remains:
+            pump = "stuck"
+        elif work_remains:
+            pump = "queued"
+        else:
+            pump = "idle"
         return [f"Root: {self.root}", f"Session: {self.session[:8]}",
-                f"Records: {self.log.count()}",
-                f"View bytes: {len(self.view.render().encode('utf-8'))}",
-                f"Unbuilt nodes: {len(self.compactor._queued)}",
+                f"Records: {self.log.count()}", f"View bytes: {view_bytes}",
+                f"Unbuilt nodes: {unbuilt}", f"Compaction: {pump}",
+                f"Last pass: start={self.last_pass_start or 'never'} "
+                f"finish={self.last_pass_finish or 'never'} "
+                f"built={self.last_pass_built if self.last_pass_built is not None else 'n/a'} "
+                f"error={self.last_pass_error or 'none'}",
                 f"Children: {sum(p.is_dir() for p in self.config.agents_dir.iterdir())}",
                 f"Last usage: {json.dumps(self.client.last_usage, ensure_ascii=False)}"]
 
     def close(self) -> None:
         if self._closed:
             return
+        drain = self._drain
+        if drain is not None and drain.is_alive() and drain is not threading.current_thread():
+            drain.join(self.config.model.drain_join_s)
         try:
-            self.save()
+            if drain is None or not drain.is_alive():
+                self.save()
         finally:
             self.log.close()
-            if self._diagnostics is not None:
+            if self._diagnostics is not None and (drain is None or not drain.is_alive()):
                 self._diagnostics.close()
+                self._diagnostics = None
             self._closed = True
