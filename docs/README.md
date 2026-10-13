@@ -15,7 +15,14 @@ Interfaces and shapes here are **extracted from the engine's source** at
 5. `TOOLS.md` — the tool set, exact JSON schemas and where each result lands.
 6. `DELEGATES.md` — the Codex/Hermes subprocess contracts and the `work` record.
 7. `ENV.md` — env matrix, paths, budgets.
-8. `PHASES.md` — P0–P3 with per-phase acceptance checks.
+8. `PHASES.md` — P0–P4 with per-phase acceptance checks.
+
+**`optchat-gist.md` is not one of those eight:** it is the spec itself, vendored here so the
+contract's source of truth does not live in a prunable cache. Taelin's design doc, byte-identical
+at vendoring time (`sha256 12f300f7…`, 19,092 bytes), upstream
+`gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449`. Every "recipe §N" citation in this
+doc set refers to its headings. When the upstream gist moves, the vendored copy is refreshed in a
+commit of its own — never edited in place.
 
 ## Non-negotiables
 

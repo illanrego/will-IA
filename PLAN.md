@@ -53,7 +53,9 @@ code; the session writes the briefs, reviews the diffs, runs the tests, commits.
 
 - `SCOPE.md` (invariants, reuse/parked map) — repo root.
 - Engine: `~/Documents/coding/opthermes` (CONTRACT.md, docs/FINDINGS.md, optchat/).
-- Recipe: `~/.hermes/cache/scratch/optchat-gist/optchat.md` (upstream: gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449).
+- Recipe (the spec): `docs/optchat-gist.md` in this repo — Taelin's design doc, byte-identical to
+  the upstream gist (`gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449`), vendored so
+  the contract does not depend on a prunable cache.
 - Personal text for notes import: `~/Documents/coding/markdowns/OPTCHAT_HELLO.md`.
 - UX reference, not code: github.com/jonaslsaa/pi-optchat.
 
