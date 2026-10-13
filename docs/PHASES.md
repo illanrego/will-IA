@@ -38,6 +38,28 @@ Green means the check at the bottom of each phase, run by the session, not by th
 - The prompt/tool-name guard is green: every registered tool name appears in the system prompt.
 - `git log` shows the vendor commit; `git status` clean; nothing pushed.
 
+### P0b — the code-shaping half (delegated: Codex, `gpt-6-astra` @ high)
+
+Deliberately a separate run and a separate model: the foundation, and a late catch costs more than
+the model. Deliverables (full detail in `briefs/P0b.md`):
+
+1. `prompts.py` — the canon's §5 block **transcribed verbatim** (rename + the computers paragraph
+   dropped), the separate compaction constants folded in, plus `build_system_prompt(instructions)`.
+2. `compactor.py` — the one-line deviation the §5.1 rewrite forces (the task template alone), and the
+   §8.9 review of the per-job `contextvars.copy_context()`.
+3. `toolkit.py` — the seven tool schemas as the fixed array, with `TOOL_NAMES` and a deep-copying
+   `schemas()`.
+4. `tests/test_toolkit.py` — the prompt/tool-name guard, the order, the deep copy, the shapes.
+5. `tests/test_media.py` — the direct-API replacement for the dropped engine-driven file.
+6. The final package root, `pyproject.toml`, and a root `README.md` pointing at `docs/README.md`.
+
+**Green**
+- The suite is green including the new tests.
+- The prompt is **byte-verified against the canon**: extracting the §5 block from
+  `docs/optchat-gist.md`, applying the two permitted edits, and diffing it against `SYSTEM_PROMPT`
+  yields no difference. A paraphrase is a failure, not a style choice.
+- `python -c "import willia"` works with no Hermes on the path.
+
 ## P1 — core chat
 
 **Deliverables**

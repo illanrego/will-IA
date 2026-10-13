@@ -82,8 +82,22 @@ Rules taken literally:
   split `Compactor` into a build phase (under the lock) and an apply phase (model calls outside it),
   or drop the thread and run the pump only in the idle window before a turn. Options, not decisions:
   decide by measurement, and record the choice in this doc when it is made.
-- Compaction views stay at 16,000–32,000 bytes (`View.context_view`), pinned per target, so the
-  same node always yields byte-identical bytes.
+- **Liveness: the pump must never be able to stall silently.** Four rules, each with a test.
+  1. **Enqueue at write time** — every record is seeded the moment it is appended, so nothing can
+     enter the log without a node (free or queued). No sweep can be missed because there is none.
+  2. **The turn start re-drives** — `settle()` builds free nodes and the turn joins the drain for
+     the cap (§2), so the tail catches up exactly when it matters.
+  3. **A watchdog** — if no pass is running, work is queued (`compactor._pending` non-empty or
+     `not view.settled()`), and a grace period has passed, the harness drives a pass; if two passes
+     in a row build nothing, it logs loudly. A stall becomes a line in `~/.willia/logs/willia.log`,
+     never silence.
+  4. **`/status` shows the truth** — unbuilt nodes, the last pass's time and result, and the last
+     error. "Summarizing" and "stuck" must be distinguishable by looking.
+- Note what liveness does *not* depend on: a line's absence from the view. A logged message is in
+  the view immediately as `(not summarized yet: zoom it)`, and `zoom(id, 1)` reads the raw record
+  straight from the log with no tree involvement — so a stalled pump degrades the model to reading
+  raw text, never to blindness. A permanently unbuildable line means a refused/corrupt record: the
+  loud path, and a human decision.
 - The compaction's user message is the **task template alone**: the one fixed system prompt already
   carries the design's compaction instructions and rubric (`ENGINE.md` §5.1, `WIRE-FORMATS` §4).
 
@@ -124,9 +138,16 @@ Crash windows and the startup reconciliation (never a rebuild):
   the host's "recover missing roots from raw records".
 - **`view.json` missing on a chat that has records**: `View` raises `ViewStateUnavailable`
   (`ENGINE.md` §2). willia must **not** rebuild and must **not** silently start an empty chat:
-  it stops, says so, and points at the backup. **[standalone]** so that state is recoverable, the
-  harness keeps `~/.willia/backups/view.json` refreshed at every `turn_end()` (a plain file copy of
-  the last good publication).
+  it stops, says so, and points at the backup.
+- **The view backup (decided 2026-10-13).** `view.json` is the one artifact that cannot be derived
+  from anything else, so the harness keeps exactly **one** copy at `~/.willia/backups/view.json`,
+  written immediately after each successful `view.save()` — it rides a publication that already
+  happens, so it costs one extra file write and nothing in processing. No history, no rotation.
+  Because a *stale* restore is worse than none, restoring is a command, not a copy:
+  `willia --restore-view` validates a backup before adopting it — its covered end must be ≤ the
+  log's record count, every pair in it must have a built node, and a backup claiming more messages
+  than the log holds is refused. A backup ending *behind* the log is accepted, and the missing roots
+  are added forward (the normal `add_root` path, never a rebuild).
 - **Mid-file corruption** in the log or tree: the vendored loaders raise. Loud, no repair.
 - On clean exit: `tree.save()`, `view.save()`, close the log (releases the flock). A `--new` chat
   archives the whole root instead of overwriting anything.

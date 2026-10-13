@@ -116,6 +116,9 @@ One command: `willia`.
   reconciliation runs, `LOOP.md` §5); if not, an empty chat is created and its `view.json` saved.
 - `willia --new` — archive the current root to `~/.willia-archive/<ts>/` and start empty. There is
   no session list, no profiles, no threads: **one endless chat** is the design.
+- `willia --restore-view` — adopt `backups/view.json` after validating it (`LOOP.md` §5): the
+  covered end must not exceed the log's record count, every pair must have a built node, and the
+  missing roots are then added forward. Refuses anything else, loudly.
 - `willia --status` — print paths, record count, view bytes, unbuilt nodes, running delegate jobs.
 - `willia --help`.
 - Implementation: a console entry point in the repo (`willia/…`), installed with `pipx`/`uv tool`

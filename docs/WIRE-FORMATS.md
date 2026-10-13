@@ -76,7 +76,10 @@ goes cold. `[verified 2026-10-13: absent -> 400 MissingSessionID; present -> 200
   settings without paying for a cold prefix.
 - willia's choice: **turns** at a pinned `reasoning_effort`; **compactions with thinking disabled
   plus a ~700-token cap** — measured to produce a compliant 408-byte line in 153 output tokens with
-  zero reasoning (the canon's cheap-model rule, satisfied by the toggle instead of a second model).
+  zero reasoning. This is an **environment substitution, not the canon's practice**: §4 of the canon
+  says a compaction uses "a cheap one" and that UniiChat ran Claude Haiku at *xhigh* effort. We keep
+  the turn's model (the cache requires it) and buy the cheapness with the toggle; `low` is the
+  fallback if real compaction lines read hollow.
 - A *different* model for compactions is therefore unnecessary for cost or time. Whether the relay
   shares one cache across two models on one session id is **untested**; if it is ever wanted, test
   it with the same prefix on model A then model B and read `cached_tokens`. `[P1, optional]`
