@@ -294,3 +294,34 @@ class Client:
         if not isinstance(content, str) or not content.strip():
             raise ClientError(None, "Compaction returned no ordinary content")
         return " ".join(content.splitlines()).strip()
+
+    def vision(self, image_url: str, question: str, *,
+               timeout: float | None = None) -> str:
+        self.last_usage = {}
+        payload = {
+            "model": self.config.vision.model or self.config.model.model,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            }],
+            "stream": False,
+        }
+        call_timeout = self.config.model.turn_timeout_s if timeout is None else timeout
+        lines = self._send(payload, call_timeout)
+        raw = "".join(
+            line.decode("utf-8") if isinstance(line, bytes) else line for line in lines
+        )
+        try:
+            response = json.loads(raw)
+            if isinstance(response.get("usage"), dict):
+                self.last_usage = response["usage"]
+            choice = response["choices"][0]
+            content = choice["message"].get("content")
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+            raise ClientError(None, "Malformed completion response") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise ClientError(None, "Vision returned no ordinary content")
+        return content.strip()

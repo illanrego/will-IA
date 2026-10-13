@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import jobs, toolkit, tools
+from . import jobs, toolkit, tools, vision as vision_tool, web
+from .config import Config
 from .store import Log
 from .tree import Tree
 
 
-_UNIMPLEMENTED = {"web_search", "web_extract", "vision"}
 _DELEGATES = {"delegate_codex": "codex", "delegate_hermes": "hermes"}
 
 
@@ -34,18 +34,35 @@ def _error(message: str) -> str:
 def dispatch(name: str, arguments: object, *, log, tree, view, root,
              node_bytes: int, chat=None, command: list[str] | None = None) -> str:
     try:
-        if name in _UNIMPLEMENTED:
-            return _error(f"not implemented yet: {name}")
         # P1 callers can still exercise the frozen placeholder without an owning
         # Chat.  A live delegate needs that owner for publication and delivery.
         if name in _DELEGATES and chat is None:
             return _error(f"not implemented yet: {name}")
-        if name not in {"zoom", "date", *_DELEGATES}:
+        if name == "vision" and chat is None:
+            return _error("vision needs an owning chat")
+        if name not in {
+            "zoom", "date", "web_search", "web_extract", "vision", *_DELEGATES,
+        }:
             return _error(f"unknown tool: {name}")
         if isinstance(arguments, str):
             arguments = json.loads(arguments)
         if not isinstance(arguments, dict):
             return _error("arguments must be a JSON object")
+        if name in {"web_search", "web_extract"}:
+            config = chat.config if chat is not None else Config()
+            if name == "web_search":
+                return web.web_search(
+                    arguments.get("query"), arguments.get("limit"), config.web
+                )
+            return web.web_extract(
+                arguments.get("urls"), arguments.get("char_limit"), config.web
+            )
+        if name == "vision":
+            return vision_tool.vision(
+                arguments.get("image_url"), arguments.get("question"),
+                client=chat.client, config=chat.config.vision,
+                root=Path(root), log=log,
+            )
         if name in _DELEGATES:
             task = arguments.get("task")
             if not isinstance(task, str) or not task.strip():

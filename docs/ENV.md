@@ -99,6 +99,8 @@
 }
 ```
 
+In the `vision` example, `"model": null` means to use the chat's own model.
+
 - Keys are additive; an unknown key is a **warning**, not a crash.
 - **Reasoning is per call type, measured** (`WIRE-FORMATS` §1): turns carry a pinned
   `reasoning_effort`; compactions run with `thinking: {"type": "disabled"}` and a small `max_tokens`

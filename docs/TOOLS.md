@@ -132,7 +132,7 @@ one entry per requested URL, in order, `error` set instead of `content` on failu
 to text/markdown. A page over `char_limit` is head+tail truncated and says so in the content.
 Logged as one `echo`.
 
-## 7. `vision` — native (OpenRouter, not the Go relay)
+## 7. `vision` — native (OpenCode Go)
 
 ```json
 {"type": "function", "function": {
@@ -146,8 +146,12 @@ Logged as one `echo`.
 
 Result: `{"answer": "<text>", "source": "<the path or URL>"}`. Never an image part: the answer is
 text, so nothing image-shaped ever enters a tool message on the Go route.
-Credential: `OPENROUTER_API_KEY` (the only thing willia reads it for)
-`[VERIFY in P2: the exact vision model id and whether it is a config field]`.
+Route and credential: the same OpenCode Go `/chat/completions` route, session header, attribution
+headers and `OPENCODE_GO_API_KEY` as the chat. It sends an ordinary multimodal **user** message,
+whose content is a text part plus an `image_url` part; the relay accepts that shape. The restriction
+against list-type content still applies to **tool** messages. The default is the chat's own model;
+`VisionConfig.model` is an optional override. The text answer is bounded by
+`VisionConfig.max_chars` and says when it was truncated.
 A local file is archived through `media.archive_media` (so the chat's own record of it survives even
 if the file moves); a remote URL is passed to the model and recorded as a reference
 (`retry_pending_media` keeps remote URLs untouched by design).

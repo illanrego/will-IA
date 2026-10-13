@@ -59,9 +59,37 @@ def test_errors(chat, name, args, error):
     assert call(chat, name, args) == {"error": error}
 
 
-@pytest.mark.parametrize("name", ["delegate_codex", "delegate_hermes", "web_search", "web_extract", "vision"])
+@pytest.mark.parametrize("name", ["delegate_codex", "delegate_hermes"])
 def test_unimplemented(chat, name):
     assert call(chat, name, {}) == {"error": "not implemented yet: " + name}
+
+
+def test_native_web_routes_work_without_owner(chat, monkeypatch):
+    seen = []
+
+    def search(query, limit, config):
+        seen.append(("search", query, limit, config.max_results))
+        return '{"results": []}'
+
+    def extract(urls, char_limit, config):
+        seen.append(("extract", urls, char_limit, config.extract_char_limit))
+        return '{"results": []}'
+
+    monkeypatch.setattr("willia.dispatch.web.web_search", search)
+    monkeypatch.setattr("willia.dispatch.web.web_extract", extract)
+
+    assert call(chat, "web_search", {"query": "willia", "limit": 2}) == {"results": []}
+    assert call(chat, "web_extract", {"urls": ["https://example.test"]}) == {"results": []}
+    assert seen == [
+        ("search", "willia", 2, 5),
+        ("extract", ["https://example.test"], None, 15_000),
+    ]
+
+
+def test_vision_requires_owner(chat):
+    assert call(chat, "vision", {
+        "image_url": "https://example.test/image.png", "question": "What is it?",
+    }) == {"error": "vision needs an owning chat"}
 
 
 def test_unknown_and_bad_arguments(chat):

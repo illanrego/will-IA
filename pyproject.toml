@@ -7,7 +7,7 @@ name = "willia"
 version = "0.0.1"
 description = "One endless chat, single profile."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["ddgs"]
 
 [project.scripts]
 willia = "willia.cli:main"
