@@ -14,7 +14,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from . import prompts, records, toolkit
+from . import jobs, prompts, records, toolkit
 from .client import Client, ClientError
 from .compactor import Compactor
 from .dispatch import dispatch
@@ -32,6 +32,8 @@ class Chat:
         self.root = config.root
         self.inbox = None
         self._closed = False
+        self._deliveries: queue.SimpleQueue[str] = queue.SimpleQueue()
+        self._startup_orphans: list[str] = []
         self._diagnostics = None
         self._engine_lock = threading.RLock()
         self._drain_lock = threading.Lock()
@@ -65,6 +67,7 @@ class Chat:
                               paths.agents_dir, paths.jobs_dir, paths.logs_dir,
                               paths.view_backup_file.parent):
                 directory.mkdir(parents=True, exist_ok=True)
+            self._startup_orphans = jobs.orphaned(self)
             if not paths.prompt_file.exists():
                 paths.prompt_file.write_text(prompts.default_instructions(), encoding="utf-8")
             self.system = prompts.build_system_prompt(paths.prompt_file.read_text(encoding="utf-8"))
@@ -144,6 +147,21 @@ class Chat:
             except queue.Empty:
                 return texts
 
+    def deliver_work(self, text: str) -> None:
+        """Queue an already logged work record for one model delivery."""
+        if not isinstance(text, str) or not text:
+            raise ValueError("Delivered work must be nonempty text")
+        self._deliveries.put(text)
+
+    def _drain_deliveries(self) -> list[dict]:
+        messages = []
+        while True:
+            try:
+                value = self._deliveries.get_nowait()
+            except queue.Empty:
+                return messages
+            messages.append({"role": "user", "content": value})
+
     def _on_delta(self, kind: str, text: str) -> None:
         if text:
             self._displayed = True
@@ -176,9 +194,11 @@ class Chat:
         request = [{"role": "system", "content": self.system},
                    {"role": "assistant", "content": view_text}]
         try:
+            request.extend(self._drain_deliveries())
             request.extend(self._users(texts))
             empty_replies = 0
             while True:
+                request.extend(self._drain_deliveries())
                 self._displayed = False
                 try:
                     reply = self.client.turn(request, self.tools, on_delta=self._on_delta)
@@ -207,11 +227,15 @@ class Chat:
                         result = dispatch(
                             call.name, arguments, log=self.log, tree=self.tree,
                             view=self.view, root=self.root,
-                            node_bytes=self.config.node_bytes)
+                            node_bytes=self.config.node_bytes, chat=self)
                     message = {"role": "tool", "tool_call_id": call.id, "content": result}
-                    self._log_message(message, call.name)
+                    record_tool = None if call.name in {
+                        "delegate_codex", "delegate_hermes"
+                    } else call.name
+                    self._log_message(message, record_tool)
                     request.append(message)
                     print((result.splitlines() or [""])[0][:200], flush=True)
+                request.extend(self._drain_deliveries())
                 request.extend(self._users(self._drain_inbox()))
         except ClientError as exc:
             print(f"Error: {exc}", flush=True)
@@ -357,6 +381,7 @@ class Chat:
                 f"built={self.last_pass_built if self.last_pass_built is not None else 'n/a'} "
                 f"error={self.last_pass_error or 'none'}",
                 f"Children: {sum(p.is_dir() for p in self.config.agents_dir.iterdir())}",
+                jobs.status_line(self, self._startup_orphans),
                 f"Last usage: {json.dumps(self.client.last_usage, ensure_ascii=False)}"]
 
     def close(self) -> None:

@@ -86,7 +86,7 @@ Schemas (new, exact):
   "parameters": {"type": "object", "properties": {
     "task": {"type": "string", "description": "The full brief: what to do, where, and how to prove it."},
     "dir": {"type": "string", "description": "Absolute working directory (defaults to the configured workspace)."},
-    "model": {"type": "string", "enum": ["gpt-6-sol", "gpt-6-astra"],
+    "model": {"type": "string", "enum": ["gpt-5.6-sol", "gpt-6-astra"],
               "description": "sol for most tasks; astra only where precision matters more than cost."},
     "name": {"type": "string", "description": "Short label for this child, used by zoom(\"Name\") and in the report's [Name] tag."}},
    "required": ["task"]}}}

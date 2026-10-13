@@ -83,7 +83,7 @@ _SCHEMAS = [
                     "model": {
                         "type": "string",
                         "enum": [
-                            "gpt-6-sol",
+                            "gpt-5.6-sol",
                             "gpt-6-astra"
                         ],
                         "description": "sol for most tasks; astra only where precision matters more than cost."
