@@ -59,7 +59,7 @@ class VisionConfig:
 class CodexDelegateConfig:
     enabled: bool = True
     bin: str = "$(npm prefix -g)/bin/codex"
-    model: str = "gpt-6-sol"
+    model: str = "gpt-5.6-sol"
     model_precise: str = "gpt-6-astra"
     reasoning_effort: str = "high"
     dir: str = "~/Documents/coding"

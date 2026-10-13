@@ -99,12 +99,15 @@ def _command(agent: str, *, brief_path: Path, report_path: Path,
     """Build either frozen delegate command in one place."""
     agent = _normal_agent(agent)
     if agent == "codex":
-        # The frozen schema retains the former ``gpt-6-sol`` tool spelling, but
-        # the account catalog's real model name is ``gpt-5.6-sol``.
-        chosen_model = "gpt-5.6-sol" if model in (None, "gpt-6-sol") else model
+        # The schema's enum is the only source of allowed spellings, and the
+        # default is the account catalog's real name, so nothing is translated.
+        chosen_model = model or "gpt-5.6-sol"
         return [
             str(_codex_binary()), "exec", "-m", chosen_model,
             "-c", 'model_reasoning_effort="high"', "--approve-for-me",
+            # A delegate directory need not be a repository (the configured
+            # workspace is a plain directory of repos), so the check is skipped.
+            "--skip-git-repo-check",
             "-C", str(directory), "-o", str(report_path),
             brief_path.read_text(encoding="utf-8"),
         ]

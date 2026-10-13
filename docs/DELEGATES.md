@@ -19,9 +19,10 @@ If a delegate is broken, the target is swapped; nothing inside willia changes.
 
 ```
 $(npm prefix -g)/bin/codex exec \
-  -m gpt-6-sol \
+  -m gpt-5.6-sol \
   -c model_reasoning_effort="high" \
   --approve-for-me \
+  --skip-git-repo-check \
   -C <workdir> \
   -o <report>.md \
   "$(cat <brief>.md)"

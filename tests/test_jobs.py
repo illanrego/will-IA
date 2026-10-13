@@ -180,8 +180,9 @@ def test_dispatch_validates_frozen_schema_and_bad_directory(chat):
     base = dispatch_args(chat) | {"chat": chat, "command": ["python3", "-c", "print('ok')"]}
     assert json.loads(dispatch("delegate_codex", {"task": ""}, **base)) == {
         "error": "task must be a nonempty string"}
-    assert "model must be one of" in json.loads(dispatch(
-        "delegate_codex", {"task": "x", "model": "gpt-4-legacy"}, **base))["error"]
+    for bad in ("gpt-4-legacy", "gpt-6-sol"):
+        assert "model must be one of" in json.loads(dispatch(
+            "delegate_codex", {"task": "x", "model": bad}, **base))["error"]
     # The enum names the account's real catalog (gpt-5.5 / gpt-5.6-sol / gpt-6-astra);
     # a name inside it must spawn, not be refused.
     accepted = json.loads(dispatch(
@@ -214,8 +215,15 @@ def test_frozen_commands_have_exact_argument_order(tmp_path, monkeypatch):
     ) == [
         str(tmp_path / "codex"), "exec", "-m", "gpt-5.6-sol",
         "-c", 'model_reasoning_effort="high"', "--approve-for-me",
+        "--skip-git-repo-check",
         "-C", str(tmp_path), "-o", str(report), "the brief",
     ]
+    # A chosen model passes through unchanged: the schema enum already refused
+    # every spelling outside the catalog, so nothing is translated here.
+    assert jobs._command(
+        "codex", brief_path=brief, report_path=report, directory=tmp_path,
+        model="gpt-6-astra",
+    )[3] == "gpt-6-astra"
     monkeypatch.setattr(jobs.shutil, "which", lambda name: "/bin/hermes")
     assert jobs._command(
         "hermes", brief_path=brief, report_path=report, directory=tmp_path,

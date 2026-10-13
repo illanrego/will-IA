@@ -90,7 +90,7 @@
   "vision": {"model": null, "max_chars": 4000},
   "delegates": {
     "codex": {"enabled": true, "bin": "$(npm prefix -g)/bin/codex",
-              "model": "gpt-6-sol", "model_precise": "gpt-6-astra",
+              "model": "gpt-5.6-sol", "model_precise": "gpt-6-astra",
               "reasoning_effort": "high", "dir": "~/Documents/coding",
               "timeout_minutes": 30},
     "hermes": {"enabled": true, "bin": "hermes", "timeout_minutes": 30}
