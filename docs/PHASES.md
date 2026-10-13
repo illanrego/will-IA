@@ -62,7 +62,20 @@ the model. Deliverables (full detail in `briefs/P0b.md`):
 
 ## P1 — core chat
 
-**Deliverables**
+**P1a — the client, config, `.env`, session (done, 2026-10-13; `willia/client.py`, `config.py`,
+`envfile.py`, `session.py`).** Verified: 139 tests green (28 new, all offline); my own live proof
+(`probes/p1a-live-proof.py`) shows a real turn, a second turn reading **96.6% of its prefix from the
+cache**, and a real compaction that built a 359-byte node reading **95.8% from the cache** with zero
+reasoning tokens. `~/.willia/session.json` now holds the chat's pinned session id. Open items found
+by review, folded into P1b: the `HTTP-Referer` value must be a real, configurable URL; the client
+must omit `reasoning_effort` when it is null; `Client.last_usage` should record the usage of every
+call (turn and compaction) for the meter; and the loop must send `content: ""` (never `null`) on a
+tool-call-only assistant message.
+
+**P1b — the turn loop, REPL v1 and launcher (deliberately the design-bearing slice → `gpt-6-astra`).**
+**P1c — the compaction pump, watchdog, recovery and `--restore-view`.**
+
+**Remaining deliverables**
 1. **Model client** (~200 lines): OpenCode Go chat-completions, streaming, tool calls, usage
    capture, bounded retries, the fixed headers, key from `~/.hermes/.env`, and the compaction
    entry point that reproduces the vendored envelope exactly (`WIRE-FORMATS` §4).

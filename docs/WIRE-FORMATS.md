@@ -106,6 +106,30 @@ completion_tokens_details.reasoning_tokens}`.
 - `reasoning_tokens` is the number to watch: it is what makes a "cheap" compaction expensive in
   *time*, which is why compactions run with thinking disabled.
 
+**Measured through willia's own client (P1a, `probes/p1a-live-proof.py`, 2026-10-13).** These are the
+P1 acceptance numbers the design rests on, on a real route with a real fixed prefix (4,661 bytes of
+prompt + 3,504 bytes of schemas):
+
+| Call | prompt_tokens | cached_tokens | cached | reasoning_tokens |
+|---|---|---|---|---|
+| turn 1 | 2,252 | 2,176 | 96.6% | 90 |
+| turn 2, same prefix and pinned session | 2,252 | 2,176 | 96.6% | 0 |
+| **the compaction of that turn's source** | 2,406 | **2,304** | **95.8%** | **0** |
+
+The compaction is the point: its system prompt and tool array are byte-identical to the turn's, so
+it read 95.8% of its input from the cache the turn had just written — the envelope works, and it
+works through our code, not in the host's. `thinking: {"type": "disabled"}` kept reasoning at zero.
+
+The full measured usage object, for the meter (the relay returns more keys than the doc needs):
+
+```json
+{"prompt_tokens": 2406, "completion_tokens": 92, "total_tokens": 2498,
+ "prompt_tokens_details": {"audio_tokens": 0, "cached_tokens": 2304,
+                           "cache_creation_input_tokens": 0, "cache_write_tokens": 0},
+ "completion_tokens_details": {"accepted_prediction_tokens": 0, "audio_tokens": 0,
+                               "reasoning_tokens": 0, "rejected_prediction_tokens": 0}}
+```
+
 **Streaming:** SSE, `data: {json}` lines, `data: [DONE]`. Deltas carry
 `choices[0].delta.{content?, reasoning_content?}` and, for tool calls, indexed fragments
 `choices[0].delta.tool_calls[{index, id?, function:{name?, arguments?}}]` that must be
