@@ -219,3 +219,86 @@ def test_list_message_content_is_rejected_before_transport(config):
         )
 
     assert transport.calls == []
+
+
+def test_referer_default_override_and_null_effort(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"model": {"referer": "https://example.org/willia",
+                                           "turns": {"reasoning_effort": None}}}))
+    configured = Config.load(path)
+    transport = FakeTransport(["data: [DONE]"])
+    Client(configured, "s", transport=transport).turn([], [])
+    assert transport.calls[0][1]["HTTP-Referer"] == "https://example.org/willia"
+    assert "reasoning_effort" not in transport.calls[0][2]
+    assert Client(Config(), "s")._headers()["HTTP-Referer"] == (
+        "https://github.com/illanrego/will-IA"
+    )
+    path.write_text('{"model":{"referer":42}}')
+    with pytest.raises(ValueError, match="model.referer"):
+        Config.load(path)
+
+
+def test_deltas_are_delivered_before_reading_next_line_and_usage_is_retained(config):
+    seen = []
+    usage = {"prompt_tokens": 7}
+
+    def transport(*_args):
+        yield sse({"choices": [{"delta": {"content": "one"}}]})
+        assert seen == [("content", "one")]
+        yield sse({"choices": [{"delta": {"reasoning_content": "thought"}}]})
+        assert seen[-1] == ("reasoning", "thought")
+        yield sse({"choices": [{"delta": {"content": "two"}}]})
+        yield sse({"usage": usage})
+        yield "data: [DONE]"
+
+    client = Client(config, "s", transport=transport)
+    reply = client.turn([], [], on_delta=lambda kind, text: seen.append((kind, text)))
+    assert reply.content == "onetwo"
+    assert seen == [("content", "one"), ("reasoning", "thought"), ("content", "two")]
+    assert client.last_usage == usage
+    client._transport = FakeTransport([nonstream("summary")], ["data: [DONE]"])
+    client.summarize(CompactionRequest("system", "view", "task", []))
+    assert client.last_usage == {"total_tokens": 3}
+    client.turn([], [])
+    assert client.last_usage == {}
+
+
+def test_tool_call_preserves_raw_argument_whitespace(config):
+    raw = '{ "id" : 0 }'
+    transport = FakeTransport([sse({"choices": [{"delta": {"tool_calls": [
+        {"index": 0, "id": "a", "function": {"name": "zoom", "arguments": raw}}
+    ]}}]}), "data: [DONE]"])
+    call = Client(config, "s", transport=transport).turn([], []).tool_calls[0]
+    assert call.arguments == {"id": 0}
+    assert call.raw_arguments == raw
+
+
+def test_partial_stream_failure_does_not_replay_displayed_text(config, monkeypatch):
+    seen = []
+    calls = []
+
+    def transport(*args):
+        calls.append(args)
+        yield sse({"choices": [{"delta": {"content": "partial"}}]})
+        raise socket.timeout("interrupted")
+
+    monkeypatch.setattr("willia.client.time.sleep", lambda _: pytest.fail("unexpected retry"))
+    client = Client(config, "s", transport=transport)
+    with pytest.raises(ClientTimeout):
+        client.turn([], [], on_delta=lambda kind, text: seen.append((kind, text)))
+    assert seen == [("content", "partial")]
+    assert len(calls) == 1
+
+
+def test_stream_transport_is_closed_at_done(config):
+    closed = []
+
+    def transport(*_args):
+        try:
+            yield "data: [DONE]"
+            pytest.fail("read past DONE")
+        finally:
+            closed.append(True)
+
+    Client(config, "s", transport=transport).turn([], [])
+    assert closed == [True]

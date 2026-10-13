@@ -9,6 +9,9 @@ description = "One endless chat, single profile."
 requires-python = ">=3.11"
 dependencies = []
 
+[project.scripts]
+willia = "willia.cli:main"
+
 [tool.setuptools]
 packages = ["willia"]
 

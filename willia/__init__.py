@@ -10,9 +10,10 @@ from .notes import import_notes
 from .store import KINDS, Log, LogLockedError, Record
 from .tree import Line, Tree
 from .view import View, ViewStateUnavailable, due
+from .chat import Chat
 
 __all__ = [
-    "COMPACT_CONCURRENCY", "CompactionRequest", "Compactor", "Summarizer",
+    "Chat", "COMPACT_CONCURRENCY", "CompactionRequest", "Compactor", "Summarizer",
     "KINDS", "Line", "Log", "LogLockedError", "Record", "Tree", "View",
     "ViewStateUnavailable", "client", "config", "due", "envfile", "import_notes",
     "prompts", "session", "toolkit",

@@ -11,8 +11,8 @@ import socket
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
@@ -31,6 +31,7 @@ class ToolCall:
     id: str
     name: str
     arguments: dict | str
+    raw_arguments: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -100,13 +101,14 @@ class Client:
         self.config = config
         self.session = session
         self._transport = transport or _default_transport
+        self.last_usage: dict = {}
 
     def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {opencode_go_key()}",
             "Content-Type": "application/json",
             "User-Agent": f"willia/{_package_version()}",
-            "HTTP-Referer": "https://github.com/illan/willia",
+            "HTTP-Referer": self.config.model.referer,
             "X-Title": "will.I.A.",
             "x-opencode-session": self.session,
         }
@@ -121,12 +123,21 @@ class Client:
             if not isinstance(message, dict) or not isinstance(message.get("content"), str):
                 raise ValueError(f"messages[{index}].content must be a str")
 
-    def _send(self, payload: dict, timeout: float) -> list[str]:
+    def _send(self, payload: dict, timeout: float) -> Iterator[str]:
         last_error: ClientError | None = None
+        started = False
         for attempt in range(3):
             try:
                 result = self._transport(self._url, self._headers(), payload, timeout)
-                return list(result)
+                try:
+                    for line in result:
+                        started = True
+                        yield line
+                finally:
+                    close = getattr(result, "close", None)
+                    if close is not None:
+                        close()
+                return
             except Exception as exc:
                 if _timeout_exception(exc):
                     error = exc if isinstance(exc, ClientTimeout) else ClientTimeout(
@@ -141,14 +152,17 @@ class Client:
                 else:
                     raise
                 last_error = error
-                if not retryable or attempt == 2:
+                # Replaying a partially displayed stream would duplicate text and
+                # splice two different sets of tool arguments together.
+                if started or not retryable or attempt == 2:
                     raise error from exc
                 time.sleep(_BACKOFF_SECONDS[attempt])
         assert last_error is not None
         raise last_error
 
     @staticmethod
-    def _sse(lines: list[str]) -> Reply:
+    def _sse(lines: Iterable[str],
+             on_delta: Callable[[str, str], None] | None = None) -> Reply:
         content: list[str] = []
         reasoning: list[str] = []
         calls: dict[int, dict[str, str]] = {}
@@ -178,8 +192,12 @@ class Client:
                     delta = choice.get("delta") or {}
                     if delta.get("content") is not None:
                         content.append(str(delta["content"]))
+                        if on_delta is not None:
+                            on_delta("content", content[-1])
                     if delta.get("reasoning_content") is not None:
                         reasoning.append(str(delta["reasoning_content"]))
+                        if on_delta is not None:
+                            on_delta("reasoning", reasoning[-1])
                     for fragment in delta.get("tool_calls") or []:
                         index = fragment.get("index")
                         if not isinstance(index, int):
@@ -210,7 +228,8 @@ class Client:
             else:
                 arguments = parsed if isinstance(parsed, dict) else raw_arguments
             tool_calls.append(ToolCall(
-                id=call["id"], name=call["name"], arguments=arguments
+                id=call["id"], name=call["name"], arguments=arguments,
+                raw_arguments=raw_arguments,
             ))
         return Reply(
             content="".join(content),
@@ -220,7 +239,10 @@ class Client:
             finish_reason=finish_reason,
         )
 
-    def turn(self, messages: list[dict], tools: list, *, timeout: float | None = None) -> Reply:
+    def turn(self, messages: list[dict], tools: list, *,
+             on_delta: Callable[[str, str], None] | None = None,
+             timeout: float | None = None) -> Reply:
+        self.last_usage = {}
         self._validate_messages(messages)
         payload = {
             "model": self.config.model.model,
@@ -228,12 +250,20 @@ class Client:
             "tools": tools,
             "stream": True,
             "stream_options": {"include_usage": True},
-            "reasoning_effort": self.config.model.turns.reasoning_effort,
         }
+        if self.config.model.turns.reasoning_effort is not None:
+            payload["reasoning_effort"] = self.config.model.turns.reasoning_effort
         call_timeout = self.config.model.turn_timeout_s if timeout is None else timeout
-        return self._sse(self._send(payload, call_timeout))
+        lines = self._send(payload, call_timeout)
+        try:
+            reply = self._sse(lines, on_delta)
+        finally:
+            lines.close()
+        self.last_usage = reply.usage
+        return reply
 
     def summarize(self, request: CompactionRequest) -> str:
+        self.last_usage = {}
         messages = []
         if request.system:
             messages.append({"role": "system", "content": request.system})
@@ -255,6 +285,8 @@ class Client:
         )
         try:
             response = json.loads(raw)
+            if isinstance(response.get("usage"), dict):
+                self.last_usage = response["usage"]
             choice = response["choices"][0]
             content = choice["message"].get("content")
         except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:

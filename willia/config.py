@@ -19,7 +19,7 @@ _LOG = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class TurnConfig:
-    reasoning_effort: str = "medium"
+    reasoning_effort: str | None = "medium"
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,7 @@ class ModelConfig:
     provider: str = "opencode-go"
     base_url: str = "https://opencode.ai/zen/go/v1"
     model: str = "deepseek-v4.1-flash"
+    referer: str = "https://github.com/illanrego/will-IA"
     turns: TurnConfig = field(default_factory=TurnConfig)
     compactions: CompactionConfig = field(default_factory=CompactionConfig)
     turn_timeout_s: int = 120
@@ -196,7 +197,7 @@ def _object(data: dict[str, Any], key: str, prefix: str = "") -> dict[str, Any]:
 def _turns(data: dict[str, Any]) -> TurnConfig:
     _warn_unknown(data, {"reasoning_effort"}, "model.turns")
     return TurnConfig(reasoning_effort=_expect(
-        data, "reasoning_effort", "medium", str, "model.turns"
+        data, "reasoning_effort", "medium", (str, type(None)), "model.turns"
     ))
 
 
@@ -212,7 +213,7 @@ def _compactions(data: dict[str, Any]) -> CompactionConfig:
 
 def _model(data: dict[str, Any]) -> ModelConfig:
     known = {
-        "provider", "base_url", "model", "turns", "compactions",
+        "provider", "base_url", "model", "referer", "turns", "compactions",
         "turn_timeout_s", "compaction_timeout_s",
     }
     _warn_unknown(data, known, "model")
@@ -220,6 +221,7 @@ def _model(data: dict[str, Any]) -> ModelConfig:
         provider=_expect(data, "provider", "opencode-go", str, "model"),
         base_url=_expect(data, "base_url", "https://opencode.ai/zen/go/v1", str, "model"),
         model=_expect(data, "model", "deepseek-v4.1-flash", str, "model"),
+        referer=_expect(data, "referer", ModelConfig().referer, str, "model"),
         turns=_turns(_object(data, "turns", "model")),
         compactions=_compactions(_object(data, "compactions", "model")),
         turn_timeout_s=_expect(data, "turn_timeout_s", 120, int, "model"),
