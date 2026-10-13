@@ -72,8 +72,20 @@ must omit `reasoning_effort` when it is null; `Client.last_usage` should record 
 call (turn and compaction) for the meter; and the loop must send `content: ""` (never `null`) on a
 tool-call-only assistant message.
 
-**P1b — the turn loop, REPL v1 and launcher (deliberately the design-bearing slice → `gpt-6-astra`).**
-**P1c — the compaction pump, watchdog, recovery and `--restore-view`.**
+**P1b — the turn loop, REPL v1 and launcher (done, 2026-10-13; `willia/records.py`, `dispatch.py`,
+`chat.py`, `repl.py`, `cli.py`).** Verified: 208 tests green (69 new, all offline); my own live proof
+(`probes/p1b-live-proof.py`, throwaway root) ran a real three-turn conversation — including a turn
+where the model called `zoom {"id": 0, "n": 1}`, our dispatcher returned the real payload, and the
+model answered from it — with the cache at **94.1%** on the tool round and **85%** on the long-paste
+turn, a compaction wave building 8 nodes above level 0 with a compliant model-written line, and a
+restart that loaded the view (10 of 10 records covered, settled, nothing reconciled). Mutation checks
+prove the tests bite: breaking render-before-log fails four chat tests, mis-clipping a tool result
+fails the clip test. The delegate added two guards I did not ask for and kept: a partially streamed
+response is **never retried** (a replay would duplicate text and splice tool arguments), and the
+missing-view preflight runs *before* the lock and any tail repair, so a lost view leaves every byte
+intact for recovery.
+
+**P1c — the compaction pump, watchdog, recovery and `--restore-view` (briefed: `briefs/P1c.md`).**
 
 **Remaining deliverables**
 1. **Model client** (~200 lines): OpenCode Go chat-completions, streaming, tool calls, usage

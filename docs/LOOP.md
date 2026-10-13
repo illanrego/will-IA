@@ -106,7 +106,7 @@ Rules taken literally:
 | Source | Records |
 |---|---|
 | user message | one `user` per `split_for_kind(text, node_bytes, "user")` chunk |
-| assistant text | one `will` per `split_for_kind(content, node_bytes, "will")` chunk; with media and no text, one `will` per media part |
+| assistant text | one `will` per `split_for_kind(content, node_bytes, "will")` chunk; **nothing** when there is no ordinary text — a reasoning-only or media-only reply is not memory (the engine's parked media branch has no caller in v1, because `vision` answers in text) |
 | assistant tool calls | one `tool` per call: `{"name": <name>, "arguments": <parsed or raw>, "content"?: <assistant text>}` as compact JSON, `ensure_ascii=False` |
 | tool result | clipped head+tail at 30,000; a **delegate** result (tool name in the delegate set) whose payload names itself → one `work` record `"[{name}] {text}"`; anything else → one `echo` |
 | reasoning / thoughts | **nothing** |
