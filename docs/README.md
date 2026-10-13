@@ -81,7 +81,7 @@ string survives anywhere in the program, warnings included.
 - Brief → `codex exec` (sol @ high default; astra @ high for tricky/precision) → read the diff →
   run the suite → prove red-first when behavior changed → commit per step. Never trust a
   delegate's summary. No pushes until the user says.
-- Vendored files are copied **with exactly the `ENGINE.md` §6 rename list applied and no other
-  edit**; every further deviation is listed in `ENGINE.md` §5 with its reason, and each file's
-  header records its origin (`opthermes` commit `fc0b13e`).
+- Vendored files are copied **with exactly the `ENGINE.md` §6 rename list and the §8 verdicts
+  applied, and no other edit**; any further deviation is listed in `ENGINE.md` §5 with its reason,
+  and each file's header records its origin (`opthermes` commit `fc0b13e`).
 - Behavior changes need a test that fails against the old code first.

@@ -40,6 +40,9 @@ Verified from the live host profile
   rejects list-type content in tool messages and 400/422s (`supports_vision_tool_messages=False`
   on the profile; the rejected row stays in history and poisons every later call). This is also
   why v1 adds no cache breakpoints (`ENGINE.md` §5.4).
+- **Every request carries a timeout** (turn ≈120 s, compaction ≈60 s): the client owns it, because
+  the vendored compactor has none and a hung call would park a drain thread indefinitely
+  (`LOOP.md` §7).
 - **Reasoning knobs (DeepSeek v4 family on Go).** Copied from
   `agent/reasoning_effort.thinking_toggle_extras(reasoning_config, DEEPSEEK_V4_EFFORTS, DEEPSEEK_V4_OVERRIDES)`:
   `DEEPSEEK_V4_EFFORTS = ("low","medium","high","max")`, `DEEPSEEK_V4_OVERRIDES = {"xhigh":"max"}`.

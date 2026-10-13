@@ -31,9 +31,10 @@ Green means the check at the bottom of each phase, run by the session, not by th
 
 **Green**
 - `uv run --no-project --with pytest python -m pytest -q` is green on the vendored subset.
-- Every vendored file diffs against its opthermes original by **the §6 rename list only**, plus the
-  two listed deviations (`ENGINE.md` §5.1, §5.2); each file's header records its origin commit and
-  any deviation.
+- Every vendored file diffs against its opthermes original by **the §6 rename list and the §8
+  verdicts only** — for `tree.py`, `view.py`, `compactor.py`, `text.py` and `persistence.py` that
+  means byte-identical after the renames; for `store.py`, `notes.py`, `tools.py` and `media.py`,
+  only the named deletions. Each file's header records its origin commit and any deviation.
 - The prompt/tool-name guard is green: every registered tool name appears in the system prompt.
 - `git log` shows the vendor commit; `git status` clean; nothing pushed.
 

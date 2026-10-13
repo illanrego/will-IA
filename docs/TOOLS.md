@@ -54,9 +54,9 @@ Harness-level rules (from `engine.handle_tool_call`, minus the host):
 - A string `id` **is** its own scope: passing `scope` with it is
   `"a string id opens its own chat; do not pass scope with it"`.
 - `scope` must be a nonempty string: `"scope must be a nonempty subagent name"`.
-- **`envelope=False` always in v1**: the host's `_multimodal` tool-result envelope is a host
-  feature and the Go relay rejects list-type tool content. Images reach the model through the
-  `vision` tool, not through `zoom`.
+- **No media envelope exists in willia.** The host's `_multimodal` tool-result shape was deleted with
+  §8.5, and the Go relay rejects list-type tool content anyway. Every result is a JSON string;
+  images reach the model only through the `vision` tool, which answers in text.
 - The model is told `zoom` is its **only** mechanism to navigate the tree — never grep, never a
   search over the log — and to zoom until a thing is whole *before* it acts, guesses or asks.
 

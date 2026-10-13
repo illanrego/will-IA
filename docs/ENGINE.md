@@ -346,14 +346,15 @@ cache section is about *when* the view merges — `view.py` and `compactor.py` a
 | `test_compactor.py` | 551 | seeding, scheduling, admission, retries, concurrency |
 | `test_text.py` | 32 | byte splitting |
 | `test_notes.py` | 32 | note import |
-| `test_tools.py` | 158 | `zoom`/`date` payloads (imports `optchat` root → see §5) |
-| `test_media.py` | 332 | archive, pending retries (same) |
+| `test_tools.py` | 158 | `zoom`/`date` payloads and the child-directory resolution |
+| `test_media.py` | 332 | **not vendored** — every test drives the host adapter; P0b writes its replacement against the direct API |
 
 **Parked (import `engine.py` / `turn_view.py` / `shim.py`, or the package root that imports
-`engine.py`):** `test_cache.py` (186, the host breakpoint planner), `test_engine.py` (2,377),
-`test_compaction_prefix.py` (154, engine), `test_prompts.py` (72, engine), `test_summarizer.py`
-(167, host route), `test_registration.py` (122), `test_shim.py` (134), `test_host_identity.py`
-(140), `test_turn_view.py` (347). Together ~3,700 lines of host-coupled tests stay in opthermes.
+`engine.py`):** `test_media.py` (332, drives the host adapter), `test_cache.py` (186, the host
+breakpoint planner), `test_engine.py` (2,377), `test_compaction_prefix.py` (154, engine),
+`test_prompts.py` (72, engine), `test_summarizer.py` (167, host route), `test_registration.py`
+(122), `test_shim.py` (134), `test_host_identity.py` (140), `test_turn_view.py` (347). Together
+~4,000 lines of host-coupled tests stay in opthermes; the vendored subset is 1,562 lines.
 
 No `conftest.py`, no `pytest.ini`/`pyproject.toml` exists in either repo: tests are plain pytest,
 run with `~/.hermes/tools/uv-*/uv run --no-project --with pytest python -m pytest -q` (the repo

@@ -72,6 +72,16 @@ Rules taken literally:
   compactions forfeits the shared prefix and is refused at config time, not silently allowed.
 - The pump is idempotent and resumable: unbuilt nodes stay queued; a failed call is deferred and
   re-queued in `finally`, never lost, never spun on.
+- **Concurrency is the harness's job, not the engine's.** None of the vendored classes is
+  thread-safe: `Tree` is a plain dict plus lists, `View` a plain list, and `Compactor` assumes one
+  caller. The drain thread and the turn thread both touch them (`seed`, `put`, `save`, `add_root`,
+  `merge_batch`, and the `context_view` render that *mutates* the maintained compaction state).
+  The rule for v1: **one harness `RLock` around every one of those calls**, with the whole
+  `run_pending` wave inside a single acquisition — so a turn's mutation may wait for a wave to
+  finish, which is the same wait §2 already budgets for. Two alternatives if the rides show stalls:
+  split `Compactor` into a build phase (under the lock) and an apply phase (model calls outside it),
+  or drop the thread and run the pump only in the idle window before a turn. Options, not decisions:
+  decide by measurement, and record the choice in this doc when it is made.
 - Compaction views stay at 16,000–32,000 bytes (`View.context_view`), pinned per target, so the
   same node always yields byte-identical bytes.
 - The compaction's user message is the **task template alone**: the one fixed system prompt already
@@ -149,6 +159,7 @@ design**, and would be labelled as such, not as a restoration of fidelity.
 | Failure | Behaviour |
 |---|---|
 | chat API error (4xx/5xx/429) | bounded retry with backoff, then end the turn and print the error. Nothing is logged for the failed call; what was already logged stands (append-only). |
+| a call hangs | **every chat and compaction call carries a timeout** (turn ≈120 s, compaction ≈60 s; the host learned this the hard way — a hung summarizer parked a thread for 600 s). A timed-out turn call is retried bounded, a timed-out compaction is deferred. Without it one hung socket stalls the pump and the turn. |
 | compaction call fails | `RuntimeWarning`, node deferred, retried at the next pass (vendored behaviour). |
 | the report is over 512 bytes | ruler retry (`OVER_LENGTH_NOTICE`), keep the shortest, ≤5 tries (vendored). |
 | log append fails | the `Log` latches `_append_failed` and refuses further appends. The loop stops loudly and keeps the pending text in the terminal; it does not pretend the message was saved. |
@@ -179,7 +190,9 @@ design**, and would be labelled as such, not as a restoration of fidelity.
 5. Never put a whole message in the view, and never render the start of an unsummarized one.
 6. Never send a compaction without the turn's `[system][tools]` prefix or with its own prompt.
 7. Never trust the model to count bytes — the ruler, the cut and the retries do it.
-8. Never log a line under 512 bytes as a node (the tree's own rule).
+8. Never accept a **model-written** line under 512 bytes: 512 is the target and the floor for a
+   summary, not a ceiling (canon §2, §7.8). A *source* that fits in 512 bytes is a different thing —
+   it is its own node, with no model call at all.
 9. Never log thoughts.
 10. Never put dates or state in the system prompt or tool schemas.
 11. Never carry a conversation across turns.
