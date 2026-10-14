@@ -112,6 +112,16 @@ willia --usage                                              # the meter + the pl
   unasked.
 
 
+## Acceptance (2026-10-14)
+
+`probes/acceptance.py` drives the installed CLI - not the API - on a throwaway chat and asserts
+twelve things end to end: a turn that calls `read_file`, the tool record, the echo, the answer,
+and that the answer **used the file's contents** (so the tool result reached the model); a second
+turn that answers again; the meter; and that a turn **read the cached prefix instead of rewriting
+it**. All twelve pass, the view reports its coverage, the compactor had drained, and the throwaway
+chat was removed cleanly. Re-run it with
+`uv run --no-project python probes/acceptance.py` (two real turns, a few thousand tokens).
+
 ## Known follow-ups (small, none blocking)
 
 - The inspection suite's locked-engine test **hangs** on a blocking read instead of failing, so the
