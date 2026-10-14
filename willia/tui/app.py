@@ -20,8 +20,11 @@ import queue
 import re
 import threading
 import time
+from collections import Counter
+from datetime import datetime, timezone
 from enum import Enum
 
+from .. import jobs, usage
 from .hints import HINTS
 from .render import Line, Span, cell_width, fit, render, viewport, wrap
 from .theme import PALETTES
@@ -40,8 +43,13 @@ class Pane(str, Enum):
     RAIL = "rail"
 
 
-HELP = ":q quit · :notes show memory · :help this line"
+HELP = ":view · :tree · :status · :usage · :help"
 RAIL_WIDTH = 30
+
+COLON_COMMANDS = (
+    ":help", ":notes", ":q", ":status", ":theme", ":tree", ":usage", ":view",
+)
+INSPECTION_COMMANDS = {":view", ":tree", ":status", ":usage"}
 
 HELP_KEYS = (
     "INSERT",
@@ -56,9 +64,9 @@ HELP_KEYS = (
     "y focused line · Y whole record · v … y visual range",
     "",
     "SEARCH / in the transcript",
-    "COMMAND :zoom 40 8 · :date 162 · :usage · :jobs · :view",
+    "COMMAND :view · :tree · :status · :usage · :notes · :help",
     ":theme blue|green|mixed · :q",
-    "HELP ? open · Esc/q/? close · j/k scroll",
+    "PANEL Esc/q close · j/k scroll · Ctrl-d/Ctrl-u page · g/G jump",
 )
 
 # A stream delta arrives per token; painting the whole frame for each one flickers.
@@ -70,7 +78,7 @@ _RECORD_WINDOW = 300
 
 class App:
     def __init__(self, chat, screen, *, rail_facts=(), rail_source=None,
-                 theme="blue", show_notes=False):
+                 usage_source=None, theme="blue", show_notes=False):
         self.chat = chat
         self.screen = screen
         self.theme = theme
@@ -92,6 +100,7 @@ class App:
         self._notice_until = 0.0
         self.rail_facts = list(rail_facts)
         self.rail_source = rail_source
+        self.usage_source = usage_source
         self.running = True
         self.busy = False
         self.compacting = False
@@ -102,6 +111,11 @@ class App:
         self.visual_anchor: int | None = None
         self.help_open = False
         self.help_scroll = 0
+        self.panel_name: str | None = None
+        self._panel_lines: list[str] = []
+        self._panel_position: tuple[int, int, int | None] | None = None
+        self._usage_local_lines: list[str] = []
+        self._usage_state_seen: object = None
         self._busy_samples = 0
         self._pending_draw = False
         self._frame_key: tuple | None = None
@@ -442,26 +456,308 @@ class App:
         raw = ["WILLIA HELP", "", *HELP_KEYS, "", "RECORDS"]
         for kind in ("user", "will", "reasoning", "tool", "echo", "work", "note"):
             raw.append(f"{kind:<10} {HINTS[kind]}")
+        return self._wrap_panel_lines(raw, width)
+
+    def _wrap_panel_lines(self, raw: list[str], width: int | None = None) -> list[str]:
         if width is None:
             screen_width, _height = self.screen.size()
             width = max(1, min(80, screen_width - 4) - 2)
-        lines = []
+        lines: list[str] = []
         for value in raw:
             lines.extend(line.text for line in wrap(value, width, "body"))
         return lines
 
+    @staticmethod
+    def _coverage(lines) -> tuple[str, list[str]]:
+        ranges = [
+            (line.i << line.l, ((line.i + 1) << line.l) - 1)
+            for line in lines
+        ]
+        if not ranges:
+            return "none", []
+        whole = f"{ranges[0][0]}-{ranges[-1][1]}"
+        pointed = [str(start) if start == end else f"{start}-{end}" for start, end in ranges]
+        return whole, pointed
+
+    def _with_engine_snapshot(self, title: str, builder) -> list[str]:
+        """Run one read-only engine snapshot, or report its busy state immediately."""
+        try:
+            engine_try = getattr(self.chat, "engine_try", None)
+            manager = engine_try() if callable(engine_try) else self.chat._engine()
+            with manager as taken:
+                if taken is False:
+                    return [title, "", "compacting"]
+                return builder()
+        except Exception as exc:
+            return [title, "", f"unavailable ({type(exc).__name__}: {exc})"]
+
+    def _view_inspection(self) -> list[str]:
+        def build() -> list[str]:
+            text = self.chat.view.render()
+            view_lines = self.chat.view.lines()
+            coverage, _pointed = self._coverage(view_lines)
+            state = "settled" if self.chat.view.settled() else "building"
+            header = (
+                f"WILLIA VIEW · {len(text.encode('utf-8')):,} B · "
+                f"records {coverage} · {state}"
+            )
+            return [header, "", *text.splitlines()]
+
+        return self._with_engine_snapshot("WILLIA VIEW", build)
+
+    def _tree_inspection(self) -> list[str]:
+        def build() -> list[str]:
+            nodes = self.chat.tree.nodes()
+            levels = Counter(level for level, _index in nodes)
+            biggest = max(levels.values(), default=0)
+            count_width = max((len(str(count)) for count in levels.values()), default=1)
+            raw = ["WILLIA TREE", ""]
+            for level in sorted(levels):
+                count = levels[level]
+                filled = max(1, round(12 * count / biggest)) if count and biggest else 0
+                bar = "█" * filled + " " * (12 - filled)
+                raw.append(f"l{level:<3} {bar} {count:>{count_width}}")
+            raw.append(f"nodes {sum(levels.values())}")
+            view_lines = self.chat.view.lines()
+            raw.extend(["", "ROOTS"])
+            if view_lines:
+                for line in view_lines:
+                    start, end = line.i << line.l, ((line.i + 1) << line.l) - 1
+                    records = str(start) if start == end else f"{start}-{end}"
+                    raw.append(f"l{line.l}:{line.i} · records {records} · {line.size:,} B")
+            else:
+                raw.append("none")
+            coverage, pointed = self._coverage(view_lines)
+            unbuilt = sum(
+                self.chat.tree.get(line.l, line.i) is None for line in view_lines
+            )
+            settled = self.chat.view.settled()
+            raw.extend([
+                "", "COVERAGE", f"records {coverage}",
+                "points " + (", ".join(pointed) if pointed else "none"),
+                ("settled" if settled else "building") + f" · {unbuilt} unbuilt",
+            ])
+            return raw
+
+        return self._with_engine_snapshot("WILLIA TREE", build)
+
+    def _record_kinds(self) -> tuple[int, Counter]:
+        count = self.chat.log.count()
+        if hasattr(self.chat.log, "get"):
+            records = (self.chat.log.get(index) for index in range(count))
+        else:
+            records = iter(self.chat.log.range(0, count - 1))
+        kinds: Counter = Counter()
+        for record in records:
+            if record is None:
+                kinds["refused"] += 1
+                continue
+            kind = record.get("kind") if isinstance(record, dict) else getattr(record, "kind", "")
+            kinds[str(kind or "unknown")] += 1
+        return count, kinds
+
+    def _compactor_state(self, *, settled: bool, queued: int) -> str:
+        drain = getattr(self.chat, "_drain", None)
+        work_remains = bool(queued) or not settled
+        if drain is not None and drain.is_alive():
+            return "summarizing"
+        if getattr(self.chat, "_stuck_reported", False) and work_remains:
+            return "stuck"
+        return "queued" if work_remains else "idle"
+
+    def _jobs_line(self) -> str:
+        try:
+            return jobs.status_line(
+                self.chat, list(getattr(self.chat, "_startup_orphans", ())))
+        except Exception:
+            return "Jobs: unavailable"
+
+    def _status_inspection(self) -> list[str]:
+        def build() -> list[str]:
+            count, kinds = self._record_kinds()
+            view_text = self.chat.view.render()
+            view_lines = self.chat.view.lines()
+            coverage, _pointed = self._coverage(view_lines)
+            settled = self.chat.view.settled()
+            view_unbuilt = sum(
+                self.chat.tree.get(line.l, line.i) is None for line in view_lines
+            )
+            queued_nodes = getattr(self.chat.compactor, "_queued", None)
+            unbuilt = len(queued_nodes) if queued_nodes is not None else view_unbuilt
+            queue_depth = len(getattr(self.chat.compactor, "_pending", ()))
+            state = self._compactor_state(settled=settled, queued=unbuilt)
+            raw = [
+                "WILLIA STATUS", "",
+                f"Session: {str(self.chat.session)[:8]}",
+                f"Records: {count}",
+            ]
+            raw.extend(f"  {kind}: {kinds[kind]}" for kind in sorted(kinds))
+            raw.extend([
+                f"View: {len(view_text.encode('utf-8')):,} B · records {coverage}",
+                f"Tree nodes: {len(self.chat.tree.nodes())}",
+                f"Settled: {'yes' if settled else 'no'}",
+                f"Unbuilt nodes: {unbuilt}",
+                f"Compaction: {state} · queue {queue_depth}",
+                self._jobs_line(),
+            ])
+            return raw
+
+        return self._with_engine_snapshot("WILLIA STATUS", build)
+
+    def _usage_local(self) -> list[str]:
+        root = getattr(self.chat, "root", None)
+        path = usage.usage_file(root) if root is not None else None
+        entries = usage.read(path) if path is not None else []
+        summary = usage.totals(entries)
+        raw = ["WILLIA USAGE", "", f"Usage log: {path or 'unavailable'}",
+               f"Calls: {summary['calls']}"]
+        raw.extend(f"{name}: {summary[name]}" for name in usage.BUCKETS)
+        for kind in sorted(summary["by_kind"]):
+            bucket = summary["by_kind"][kind]
+            raw.append(
+                f"{kind}: calls={bucket['calls']} input={bucket['input_tokens']} "
+                f"output={bucket['output_tokens']} cache_read={bucket['cache_read_tokens']} "
+                f"cache_write={bucket['cache_write_tokens']} "
+                f"reasoning={bucket['reasoning_tokens']}"
+            )
+        if entries:
+            raw.append(f"Latest call: {entries[-1].get('at')} ({entries[-1].get('kind')})")
+        return raw
+
+    def _usage_state(self) -> dict:
+        if not callable(self.usage_source):
+            return {"go_status": "unavailable", "go_windows": {},
+                    "codex_status": "unavailable", "codex_windows": {}}
+        try:
+            state = self.usage_source()
+        except Exception:
+            state = None
+        return state if isinstance(state, dict) else {
+            "go_status": "unavailable", "go_windows": {},
+            "codex_status": "unavailable", "codex_windows": {},
+        }
+
+    @staticmethod
+    def _window_reset(value) -> str:
+        try:
+            target = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if target.tzinfo is None:
+                target = target.replace(tzinfo=timezone.utc)
+            return usage.countdown((target - datetime.now(timezone.utc)).total_seconds())
+        except ValueError:
+            return "?"
+
+    def _usage_accounts(self) -> list[str]:
+        state = self._usage_state()
+        raw = ["go:"]
+        go_status = state.get("go_status")
+        windows = state.get("go_windows")
+        if go_status == "loading":
+            raw.append("Windows: loading")
+        elif go_status != "ready" or not isinstance(windows, dict):
+            error = state.get("go_error")
+            raw.append("Windows: unavailable" + (f" ({error})" if error else ""))
+        else:
+            reported = [name for name in usage.WINDOWS if isinstance(windows.get(name), dict)]
+            if not reported:
+                raw.append("Windows: none reported for this plan")
+            for name in reported:
+                window = windows[name]
+                reset_at = window.get("resetsAt")
+                raw.append(
+                    f"{name}: {window.get('percent')}% resets {reset_at} "
+                    f"({self._window_reset(reset_at)})"
+                )
+
+        codex_status = state.get("codex_status")
+        codex = state.get("codex_windows")
+        if codex_status == "loading":
+            raw.append("codex: loading")
+        elif codex_status != "ready" or not isinstance(codex, dict):
+            error = state.get("codex_error")
+            raw.append("codex: unavailable" + (f" ({error})" if error else ""))
+        else:
+            raw.append(f"codex: plan={codex.get('plan') or 'unknown'}")
+            for name in ("primary", "secondary"):
+                window = codex.get(name)
+                if not isinstance(window, dict):
+                    continue
+                label = window.get("label") or name
+                percent = window.get("percent")
+                percent_text = f"{percent:g}%" if isinstance(percent, (int, float)) else "?"
+                raw.append(
+                    f"{label}: {percent_text} resets "
+                    f"{usage.countdown(window.get('resets_in_s'))}"
+                )
+            if codex.get("reset_credits") is not None:
+                raw.append(f"reset credits: {codex['reset_credits']}")
+        return raw
+
+    def _inspection_raw(self) -> list[str]:
+        if self.panel_name == "usage":
+            return [*self._usage_local_lines, *self._usage_accounts()]
+        return self._panel_lines
+
+    def _panel_content(self, width: int | None = None) -> list[str]:
+        if self.panel_name == "help":
+            return self._help_content(width)
+        return self._wrap_panel_lines(self._inspection_raw(), width)
+
+    def _open_panel(self, name: str, lines: list[str] | None = None) -> None:
+        if not self.help_open:
+            self._panel_position = (
+                self.scroll_offset, self.transcript_cursor, self.visual_anchor)
+        self.help_open = True
+        self.panel_name = name
+        self.help_scroll = 0
+        self._panel_lines = list(lines or ())
+
+    def _close_panel(self) -> None:
+        self.help_open = False
+        self.panel_name = None
+        self.help_scroll = 0
+        if self._panel_position is not None:
+            self.scroll_offset, self.transcript_cursor, self.visual_anchor = self._panel_position
+        self._panel_position = None
+
+    def _open_inspection(self, command: str) -> None:
+        name = command.removeprefix(":")
+        if command == ":view":
+            lines = self._view_inspection()
+        elif command == ":tree":
+            lines = self._tree_inspection()
+        elif command == ":status":
+            lines = self._status_inspection()
+        else:
+            self._usage_local_lines = self._usage_local()
+            lines = []
+        self._open_panel(name, lines)
+        self._usage_state_seen = self._usage_state() if command == ":usage" else None
+
     def _help_max_scroll(self) -> int:
         _width, height = self.screen.size()
-        visible = max(1, min(height - 4, len(self._help_content())))
-        return max(0, len(self._help_content()) - visible)
+        content = self._panel_content()
+        visible = max(1, min(height - 4, len(content)))
+        return max(0, len(content) - visible)
 
     def _help_key(self, key: str) -> None:
-        if key in {"ESC", "q", "?"}:
-            self.help_open = False
+        if key in {"ESC", "q"} or (key == "?" and self.panel_name == "help"):
+            self._close_panel()
         elif key in {"j", "DOWN"}:
             self.help_scroll = min(self._help_max_scroll(), self.help_scroll + 1)
         elif key in {"k", "UP"}:
             self.help_scroll = max(0, self.help_scroll - 1)
+        elif key in {"CTRL_D", "PGDN"}:
+            _width, height = self.screen.size()
+            self.help_scroll = min(
+                self._help_max_scroll(), self.help_scroll + max(1, (height - 4) // 2))
+        elif key in {"CTRL_U", "PGUP"}:
+            _width, height = self.screen.size()
+            self.help_scroll = max(0, self.help_scroll - max(1, (height - 4) // 2))
+        elif key in {"g", "HOME"}:
+            self.help_scroll = 0
+        elif key in {"G", "END"}:
+            self.help_scroll = self._help_max_scroll()
 
     @staticmethod
     def _rail_identity(fact, occurrence: int) -> tuple[str, int]:
@@ -574,13 +870,25 @@ class App:
             self.command = self.command[:-1]
             if not self.command:
                 self.command = None
+        elif key == "TAB":
+            matches = [name for name in COLON_COMMANDS if name.startswith(self.command)]
+            if len(matches) == 1:
+                self.command = matches[0]
+            elif matches:
+                prefix = matches[0]
+                for match in matches[1:]:
+                    prefix = prefix[:next(
+                        (index for index, pair in enumerate(zip(prefix, match))
+                         if pair[0] != pair[1]), min(len(prefix), len(match)))]
+                self.command = prefix
         elif key == "ENTER":
             command, self.command = self.command, None
             if command == ":q":
                 self.running = False
             elif command == ":help":
-                self.help_open = True
-                self.help_scroll = 0
+                self._open_panel("help")
+            elif command in INSPECTION_COMMANDS:
+                self._open_inspection(command)
             elif command == ":notes":
                 self.show_notes = not self.show_notes
                 self.notice = "memory shown" if self.show_notes else "memory hidden"
@@ -593,7 +901,8 @@ class App:
                 else:
                     self._set_notice(f"unknown theme: {name}")
             else:
-                self.notice = f"Unknown command: {command}"
+                available = ", ".join(COLON_COMMANDS)
+                self.notice = f"Unknown command: {command} (available: {available})"
         elif len(key) == 1 and key.isprintable():
             self.command += key
 
@@ -636,8 +945,7 @@ class App:
             self.mode = Mode.INSERT
             self.visual_anchor = None
         elif key == "?":
-            self.help_open = True
-            self.help_scroll = 0
+            self._open_panel("help")
         elif key == "v" and self.focus == Pane.TRANSCRIPT:
             if self.visual_anchor is None:
                 self.visual_anchor = self._focused_transcript_index()
@@ -706,7 +1014,7 @@ class App:
     def _help_frame(self) -> list[Line]:
         width, height = self.screen.size()
         panel_width = max(4, min(80, width - 4))
-        content = self._help_content()
+        content = self._panel_content()
         inner_height = max(1, min(height - 4, len(content)))
         self.help_scroll = min(self.help_scroll, max(0, len(content) - inner_height))
         shown = content[self.help_scroll:self.help_scroll + inner_height]
@@ -961,6 +1269,11 @@ class App:
                     changed = self._drain_events()
                     if self._rail_due() and self._refresh_rail():
                         changed = True
+                    if self.help_open and self.panel_name == "usage":
+                        usage_state = self._usage_state()
+                        if usage_state != self._usage_state_seen:
+                            self._usage_state_seen = usage_state
+                            changed = True
                     poll = getattr(self.screen, "poll_key", None)
                     key = poll(0.05) if poll is not None else self.screen.read_key()
                     if key is not None:

@@ -141,27 +141,60 @@ def run(chat) -> None:
     leaves the terminal blank for as long as it takes, which is exactly how it failed once."""
     windows: dict = {}
     codex_windows: dict = {}
+    usage_state = {
+        "go_status": "loading", "go_error": "",
+        "codex_status": "loading", "codex_error": "",
+    }
+    usage_lock = threading.Lock()
 
     def fetch_windows() -> None:
         try:
-            windows.update(usage.subscription_windows(chat.config))
-        except Exception:
-            pass
+            fetched = usage.subscription_windows(chat.config)
+        except Exception as exc:
+            with usage_lock:
+                usage_state["go_status"] = "unavailable"
+                usage_state["go_error"] = str(exc)
+        else:
+            with usage_lock:
+                windows.update(fetched)
+                usage_state["go_status"] = "ready"
 
     def fetch_codex_windows() -> None:
         try:
-            codex_windows.update(usage.codex_windows())
-        except Exception:
-            pass
+            fetched = usage.codex_windows()
+        except Exception as exc:
+            with usage_lock:
+                usage_state["codex_status"] = "unavailable"
+                usage_state["codex_error"] = str(exc)
+        else:
+            with usage_lock:
+                codex_windows.update(fetched)
+                usage_state["codex_status"] = "ready"
+
+    def usage_source() -> dict:
+        with usage_lock:
+            return {
+                **usage_state,
+                "go_windows": dict(windows),
+                "codex_windows": dict(codex_windows),
+            }
 
     threading.Thread(target=fetch_windows, name="willia-tui-go-usage", daemon=True).start()
     threading.Thread(
         target=fetch_codex_windows, name="willia-tui-codex-usage", daemon=True,
     ).start()
-    source = lambda blocking=False: build_rail_facts(
-        chat, windows, codex_windows, blocking=blocking,
-    )
-    App(chat, Screen(), rail_source=source, theme=chat.config.tui.theme).run()
+
+    def source(blocking=False):
+        state = usage_source()
+        return build_rail_facts(
+            chat, state["go_windows"], state["codex_windows"], blocking=blocking,
+        )
+
+    app = App(chat, Screen(), rail_source=source, theme=chat.config.tui.theme)
+    # Attach after construction so the public App startup signature stays compatible with the
+    # small screen/runner fakes used by embedders and tests.
+    app.usage_source = usage_source
+    app.run()
 
 
 __all__ = ["build_rail_facts", "run"]

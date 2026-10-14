@@ -173,8 +173,20 @@ def test_q_help_and_unknown_commands():
     assert app.help_open is False
     press(app, ":", "n", "o", "p", "e", "ENTER")
     assert "Unknown command" in app.notice
+    assert all(name in app.notice for name in (":view", ":tree", ":status", ":usage"))
     press(app, ":", "q", "ENTER")
     assert app.running is False
+
+
+@pytest.mark.parametrize("prefix, completed", [
+    ((":", "v", "TAB"), ":view"),
+    ((":", "s", "TAB"), ":status"),
+    ((":", "u", "TAB"), ":usage"),
+])
+def test_inspection_commands_complete_on_the_colon_line(prefix, completed):
+    app = App(FakeChat(), FakeScreen())
+    press(app, *prefix)
+    assert app.command == completed
 
 
 def test_line_record_and_visual_range_yanks_use_log_text():
