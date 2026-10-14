@@ -42,7 +42,7 @@ willia --status                                             # the real chat's st
 willia --usage                                              # the meter + the plan's windows
 ```
 
-## State as of this handoff (2026-10-14, 43 commits, pushed; HEAD `4d7ff71`)
+## State as of this handoff (2026-10-14, 54 commits, pushed; HEAD `48cd7b1`)
 
 - **P0, P1, P2 closed; P3's bootstrap and tooling in (both accounts now); P4a landed; the TUI's
   P5a-P5d landed.**
@@ -76,11 +76,13 @@ willia --usage                                              # the meter + the pl
 
 ## Next, in order
 
-1. **The browser batch (P4b) is blocked on one decision: its dependency.** `TOOLS.md` section 9 says
-   `browser` is local Playwright, which means a real dependency plus downloaded browser binaries — the
-   project has exactly one dependency (`ddgs`) on purpose, so this is his call, not the session's.
-   `computer_use` has the same shape (a driver process in Hermes). Voice, cron, MCP and skills need
-   no dependency. The planning `todo` was deliberately skipped in P4a.
+1. **The remaining parity batches.** Illan asked for them all on 2026-10-14. Split by what they cost:
+   **needs nothing** - `cron` (a stdlib scheduler over the existing job records), `mcp` (a JSON-RPC
+   client over stdio, no package), `skills` (read `SKILL.md` directories), and the planning `todo`
+   skipped in P4a. **Needs a decision** - `browser` is local Playwright per `TOOLS.md` section 9,
+   which adds a dependency plus downloaded browser binaries to a project that keeps exactly one
+   dependency on purpose; `computer_use` needs a driver process; `voice` needs a TTS backend. Ask
+   before adding any of them, and each batch rewrites the cache prefix once, then freezes.
 2. **His first real ride with the tools, now including the TUI.** Each failure the ride surfaces gets
    a repro, a fix, a test and a commit. `terminal` is the one to watch: it is ungated by design.
 3. **Then the rest of the parity batches**, one at a time; each rewrites the cache prefix once, then
@@ -108,6 +110,17 @@ willia --usage                                              # the meter + the pl
   that is his deliberate style, and he asked for it to stop. This resumes in the new session.
 - Brief replies, options over monologues, he stays in the loop, you do not open the next slice
   unasked.
+
+
+## Known follow-ups (small, none blocking)
+
+- The inspection suite's locked-engine test **hangs** on a blocking read instead of failing, so the
+  mutation that takes the engine lock unconditionally has to be killed by hand. Give that test a
+  bound. (Found while mutation-checking P5i: two verification cells died at the 300 s cap.)
+- `willia --status` and `--restore-view` take the log lock, so they refuse while a TUI is riding even
+  though `--status` only reads. The read-only report script already proves a lock-free path exists.
+- `--status` prints `Last usage: {}` while `usage.jsonl` holds hundreds of calls: a field reading the
+  wrong place.
 
 ## Traps already paid for (full list in the skill)
 
