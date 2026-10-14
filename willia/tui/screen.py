@@ -10,6 +10,7 @@ import termios
 import tty
 from collections.abc import Mapping
 
+from .clipboard import copy_text
 from .theme import colour_depth, sgr
 
 
@@ -186,9 +187,14 @@ class Screen:
             spans = getattr(line, "spans", ())
             if spans:
                 for span in spans:
+                    output.append(sgr(
+                        theme, span.background or "bg", self.depth, background=True))
                     output.extend((sgr(theme, span.style, self.depth), span.text))
             else:
                 token = getattr(line, "style", "body")
                 output.extend((sgr(theme, token, self.depth), getattr(line, "text", str(line))))
         output.append(RESET)
         self._write("".join(output))
+
+    def copy(self, text: str) -> None:
+        copy_text(text, self._write)

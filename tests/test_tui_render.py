@@ -141,4 +141,5 @@ def test_rail_facts_are_tuples_built_from_live_sources(tmp_path):
     assert mapped["session"] == "12345678"
     assert mapped["go"] == "3%"
     assert mapped["resets"] == "4h0m"
+    assert mapped["here"] == "0"
     assert "codex" not in mapped

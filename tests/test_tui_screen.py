@@ -1,3 +1,4 @@
+import base64
 import copy
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from willia.chat import Chat
 from willia.client import Reply
 from willia.config import Config
+from willia.tui.clipboard import copy_text
 from willia.tui.screen import ALT_OFF, ALT_ON, CURSOR_HIDE, CURSOR_SHOW, Screen, decode_key
 from willia.tui.theme import ansi_colour
 
@@ -51,6 +53,24 @@ def test_colour_degradation_has_256_and_8_colour_sequences():
     assert ansi_colour("#8FDCFF", 256).startswith("\x1b[38;5;")
     assert ansi_colour("#8FDCFF", 8) in {f"\x1b[{code}m" for code in range(30, 38)}
     assert ansi_colour("#8FDCFF", 24) == "\x1b[38;2;143;220;255m"
+
+
+def test_clipboard_writes_osc52_with_base64_of_the_utf8_payload_only():
+    writes = []
+    text = "what was said — exactly"
+    Screen(input_fd=-1, writer=writes.append, depth=24).copy(text)
+    expected = base64.b64encode(text.encode("utf-8")).decode("ascii")
+    assert writes == [f"\x1b]52;c;{expected}\x07"]
+
+
+def test_clipboard_fallback_failure_is_silent():
+    def fail(*_args, **_kwargs):
+        raise OSError("clipboard unavailable")
+
+    copy_text(
+        "safe", fail, environ={"WAYLAND_DISPLAY": "wayland-0"},
+        which=lambda _name: "/missing/wl-copy", runner=fail,
+    )
 
 
 def test_sink_none_preserves_the_existing_stdout(tmp_path, capsys):

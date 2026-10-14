@@ -19,7 +19,9 @@ import threading
 import time
 from enum import Enum
 
-from .render import Line, Span, cell_width, fit, render, viewport
+from .hints import HINTS
+from .render import Line, Span, cell_width, fit, render, viewport, wrap
+from .theme import PALETTES
 
 
 log = logging.getLogger(__name__)
@@ -30,8 +32,31 @@ class Mode(str, Enum):
     INSERT = "INSERT"
 
 
+class Pane(str, Enum):
+    TRANSCRIPT = "transcript"
+    RAIL = "rail"
+
+
 HELP = ":q quit · :notes show memory · :help this line"
 RAIL_WIDTH = 30
+
+HELP_KEYS = (
+    "INSERT",
+    "i compose · Enter send · Ctrl-j newline · Ctrl-u clear · Ctrl-w delete word",
+    "Up/Down history · Esc normal mode",
+    "",
+    "NORMAL",
+    "h j k l move · Ctrl-d/Ctrl-u half page · gg/G oldest/newest · n/N matches",
+    "Tab or Ctrl-w h/j/k/l switch/move panes · Enter/Esc fold/unfold · Ctrl-b rail",
+    "",
+    "YANK",
+    "y focused line · Y whole record · v … y visual range",
+    "",
+    "SEARCH / in the transcript",
+    "COMMAND :zoom 40 8 · :date 162 · :usage · :jobs · :view",
+    ":theme blue|green|mixed · :q",
+    "HELP ? open · Esc/q/? close · j/k scroll",
+)
 
 # A stream delta arrives per token; painting the whole frame for each one flickers.
 _REDRAW_INTERVAL_S = 1.0 / 30.0
@@ -48,22 +73,32 @@ class App:
         self.theme = theme
         self.show_notes = show_notes
         self.mode = Mode.NORMAL
+        self.focus = Pane.TRANSCRIPT
         self.scroll_offset = 0
+        self.transcript_cursor = 0
         self.buffer = ""
         self.history: list[str] = []
         self.history_index: int | None = None
         self._history_draft = ""
         self.command: str | None = None
         self._pending_g = False
+        self._pending_ctrl_w = False
         self.in_flight: list[dict] = []
         self.records: list = []
         self.notice = ""
+        self._notice_until = 0.0
         self.rail_facts = list(rail_facts)
         self.rail_source = rail_source
         self.running = True
         self.busy = False
         self.compacting = False
         self.rail_visible = True
+        self.rail_index = 0
+        self.collapsed_groups: set[str] = set()
+        self.collapsed_records: set[int] = set()
+        self.visual_anchor: int | None = None
+        self.help_open = False
+        self.help_scroll = 0
         self._busy_samples = 0
         self._pending_draw = False
         self._frame_key: tuple | None = None
@@ -112,8 +147,10 @@ class App:
         if self.compacting:
             self.compacting = False
             return True
+        selected = self._selected_rail_identity()
         changed = list(facts) != self.rail_facts
         self.rail_facts = list(facts)
+        self._restore_rail_selection(selected)
         return changed
 
     def _rail_due(self) -> bool:
@@ -164,6 +201,7 @@ class App:
         self.buffer = ""
         self.mode = Mode.NORMAL
         self.scroll_offset = 0
+        self.transcript_cursor = 0
         self.in_flight = [{"event": "user", "text": text}]
         self.busy = True
         self.notice = ""
@@ -180,6 +218,7 @@ class App:
             self.in_flight.clear()
             self._refresh_records()
             self.scroll_offset = 0
+            self.transcript_cursor = 0
             self.redraw()
             return
         if event == "tool_result":
@@ -205,10 +244,12 @@ class App:
 
     def _transcript(self, centre: int) -> list[Line]:
         """The durable transcript, wrapped once per change and then sliced."""
-        key = (self.chat.log.count(), centre, self.theme, self.show_notes, len(self.records))
+        key = (self.chat.log.count(), centre, self.theme, self.show_notes, len(self.records),
+               frozenset(self.collapsed_records))
         if self._cache_key != key:
             self._cache = render(self.records, (), centre, -1, self.theme,
-                                 show_notes=self.show_notes)
+                                 show_notes=self.show_notes,
+                                 collapsed_records=self.collapsed_records)
             self._cache_key = key
         return self._cache
 
@@ -217,7 +258,45 @@ class App:
         return max(0, len(self._transcript(centre)) - body_height)
 
     def _move(self, amount: int) -> None:
-        self.scroll_offset = max(0, min(self._max_offset(), self.scroll_offset + amount))
+        lines = self._all_transcript_lines()
+        self.transcript_cursor = max(
+            0, min(max(0, len(lines) - 1), self.transcript_cursor + amount))
+        self.scroll_offset = max(
+            0, min(self._max_offset(), self.scroll_offset + amount))
+
+    def _all_transcript_lines(self) -> list[Line]:
+        _width, _body_height, centre = self._body_size()
+        durable = self._transcript(centre)
+        flight = render((), self.in_flight, centre, -1, self.theme) if self.in_flight else []
+        return durable + flight
+
+    def _focused_transcript_line(self) -> Line | None:
+        lines = self._all_transcript_lines()
+        if not lines:
+            return None
+        return lines[max(0, len(lines) - 1 - min(self.transcript_cursor, len(lines) - 1))]
+
+    def _focused_transcript_index(self) -> int | None:
+        lines = self._all_transcript_lines()
+        if not lines:
+            return None
+        return max(0, len(lines) - 1 - min(self.transcript_cursor, len(lines) - 1))
+
+    def _fold_transcript(self, collapsed: bool) -> None:
+        line = self._focused_transcript_line()
+        if line is None or line.record_id is None:
+            return
+        record_id = line.record_id
+        if collapsed:
+            self.collapsed_records.add(record_id)
+        else:
+            self.collapsed_records.discard(record_id)
+        self._cache_key = None
+        lines = self._all_transcript_lines()
+        positions = [index for index, item in enumerate(lines) if item.record_id == record_id]
+        if positions:
+            self.transcript_cursor = max(0, len(lines) - 1 - positions[-1])
+            self.scroll_offset = min(self._max_offset(), self.transcript_cursor)
 
     # ---------------------------------------------------------------- insert editing
 
@@ -248,6 +327,203 @@ class App:
 
     # ---------------------------------------------------------------- commands and keys
 
+    def _set_notice(self, text: str, seconds: float = 1.5) -> None:
+        self.notice = text
+        self._notice_until = time.monotonic() + seconds
+
+    def _notice_expired(self) -> bool:
+        if self.notice and self._notice_until and time.monotonic() >= self._notice_until:
+            self.notice = ""
+            self._notice_until = 0.0
+            return True
+        return False
+
+    @staticmethod
+    def _record_text(record) -> str:
+        return str(record.get("text", "") if isinstance(record, dict)
+                   else getattr(record, "text", ""))
+
+    def _whole_record_text(self, record_id: int | None) -> str | None:
+        if record_id is None:
+            return None
+        for record in self.records:
+            current_id = (record.get("i") if isinstance(record, dict)
+                          else getattr(record, "i", None))
+            if current_id == record_id:
+                return self._record_text(record)
+        return None
+
+    def _copy(self, text: str | None) -> None:
+        if text is None:
+            return
+        try:
+            copier = getattr(self.screen, "copy", None)
+            if callable(copier):
+                copier(text)
+        except Exception:
+            pass
+        self._set_notice(f"yanked {len(text.encode('utf-8'))} bytes")
+
+    def _visual_text(self) -> str | None:
+        current = self._focused_transcript_index()
+        if self.visual_anchor is None or current is None:
+            return None
+        lines = self._all_transcript_lines()
+        lo, hi = sorted((self.visual_anchor, current))
+        selected = []
+        previous = object()
+        for line in lines[lo:hi + 1]:
+            if line.record_id is None or line.source_text is None:
+                continue
+            identity = (line.record_id, line.source_index, line.source_text)
+            if identity == previous:
+                continue
+            selected.append(line.source_text)
+            previous = identity
+        return "\n".join(selected)
+
+    def _yank(self, whole: bool = False) -> None:
+        line = self._focused_transcript_line()
+        if line is None or line.record_id is None:
+            return
+        if self.visual_anchor is not None:
+            text = self._visual_text()
+            self.visual_anchor = None
+        elif whole:
+            text = self._whole_record_text(line.record_id)
+        else:
+            text = line.source_text
+        self._copy(text)
+
+    def _help_content(self, width: int | None = None) -> list[str]:
+        raw = ["WILLIA HELP", "", *HELP_KEYS, "", "RECORDS"]
+        for kind in ("user", "will", "reasoning", "tool", "echo", "work", "note"):
+            raw.append(f"{kind:<10} {HINTS[kind]}")
+        if width is None:
+            screen_width, _height = self.screen.size()
+            width = max(1, min(80, screen_width - 4) - 2)
+        lines = []
+        for value in raw:
+            lines.extend(line.text for line in wrap(value, width, "body"))
+        return lines
+
+    def _help_max_scroll(self) -> int:
+        _width, height = self.screen.size()
+        visible = max(1, min(height - 4, len(self._help_content())))
+        return max(0, len(self._help_content()) - visible)
+
+    def _help_key(self, key: str) -> None:
+        if key in {"ESC", "q", "?"}:
+            self.help_open = False
+        elif key in {"j", "DOWN"}:
+            self.help_scroll = min(self._help_max_scroll(), self.help_scroll + 1)
+        elif key in {"k", "UP"}:
+            self.help_scroll = max(0, self.help_scroll - 1)
+
+    @staticmethod
+    def _rail_identity(fact, occurrence: int) -> tuple[str, int]:
+        return str(fact[0]), occurrence
+
+    def _visible_rail_facts(self):
+        visible = []
+        index = 0
+        while index < len(self.rail_facts):
+            fact = self.rail_facts[index]
+            label = str(fact[0])
+            if not label.startswith("#"):
+                visible.append(fact)
+                index += 1
+                continue
+            end = index + 1
+            while end < len(self.rail_facts) and not str(self.rail_facts[end][0]).startswith("#"):
+                end += 1
+            if label in self.collapsed_groups:
+                hidden = [item for item in self.rail_facts[index + 1:end]
+                          if str(item[0]) != "state"]
+                visible.append((label, str(len(hidden)), fact[2]))
+                visible.extend(item for item in self.rail_facts[index + 1:end]
+                               if str(item[0]) == "state")
+            else:
+                visible.extend(self.rail_facts[index:end])
+            index = end
+        return visible
+
+    def _selected_rail_identity(self) -> tuple[str, int] | None:
+        facts = self._visible_rail_facts()
+        if not facts:
+            return None
+        index = min(self.rail_index, len(facts) - 1)
+        label = str(facts[index][0])
+        occurrence = sum(1 for fact in facts[:index] if str(fact[0]) == label)
+        return self._rail_identity(facts[index], occurrence)
+
+    def _restore_rail_selection(self, identity: tuple[str, int] | None) -> None:
+        facts = self._visible_rail_facts()
+        if not facts:
+            self.rail_index = 0
+            return
+        if identity is not None:
+            occurrence = 0
+            for index, fact in enumerate(facts):
+                label = str(fact[0])
+                if label == identity[0]:
+                    if occurrence == identity[1]:
+                        self.rail_index = index
+                        return
+                    occurrence += 1
+        self.rail_index = min(self.rail_index, len(facts) - 1)
+
+    def _move_rail(self, amount: int) -> None:
+        facts = self._visible_rail_facts()
+        if facts:
+            self.rail_index = max(0, min(len(facts) - 1, self.rail_index + amount))
+
+    def _rail_group(self) -> str | None:
+        facts = self._visible_rail_facts()
+        if not facts:
+            return None
+        selected = str(facts[min(self.rail_index, len(facts) - 1)][0])
+        if selected.startswith("#"):
+            return selected
+        original_index = next((index for index, fact in enumerate(self.rail_facts)
+                               if str(fact[0]) == selected), -1)
+        for index in range(original_index, -1, -1):
+            label = str(self.rail_facts[index][0])
+            if label.startswith("#"):
+                return label
+        return None
+
+    def _fold_rail(self, collapsed: bool) -> None:
+        group = self._rail_group()
+        if group is None:
+            return
+        if collapsed:
+            self.collapsed_groups.add(group)
+            for index, fact in enumerate(self._visible_rail_facts()):
+                if str(fact[0]) == group:
+                    self.rail_index = index
+                    break
+        else:
+            self.collapsed_groups.discard(group)
+
+    def _switch_pane(self, pane: Pane | None = None) -> None:
+        if not self.rail_visible:
+            self.focus = Pane.TRANSCRIPT
+            return
+        self.focus = pane or (
+            Pane.RAIL if self.focus == Pane.TRANSCRIPT else Pane.TRANSCRIPT)
+
+    def _ctrl_w_key(self, key: str) -> None:
+        self._pending_ctrl_w = False
+        if key in {"h", "LEFT"}:
+            self._switch_pane(Pane.RAIL)
+        elif key in {"l", "RIGHT"}:
+            self._switch_pane(Pane.TRANSCRIPT)
+        elif key in {"j", "DOWN"}:
+            self._move_rail(1) if self.focus == Pane.RAIL else self._move(-1)
+        elif key in {"k", "UP"}:
+            self._move_rail(-1) if self.focus == Pane.RAIL else self._move(1)
+
     def _command_key(self, key: str) -> None:
         if key == "ESC":
             self.command = None
@@ -260,10 +536,19 @@ class App:
             if command == ":q":
                 self.running = False
             elif command == ":help":
-                self.notice = HELP
+                self.help_open = True
+                self.help_scroll = 0
             elif command == ":notes":
                 self.show_notes = not self.show_notes
                 self.notice = "memory shown" if self.show_notes else "memory hidden"
+            elif command.startswith(":theme "):
+                name = command.removeprefix(":theme ").strip()
+                if name in PALETTES:
+                    self.theme = name
+                    self._cache_key = None
+                    self._set_notice(f"theme {name}")
+                else:
+                    self._set_notice(f"unknown theme: {name}")
             else:
                 self.notice = f"Unknown command: {command}"
         elif len(key) == 1 and key.isprintable():
@@ -273,6 +558,9 @@ class App:
         if key in {"CTRL_C", "EOF"}:
             self.running = False
             return False
+        if self.help_open:
+            self._help_key(key)
+            return self.running
         if self.command is not None:
             self._command_key(key)
             return self.running
@@ -297,15 +585,54 @@ class App:
                 self.buffer += key
             return self.running
 
-        if key in {"i", "ENTER"}:
+        if self._pending_ctrl_w:
+            self._ctrl_w_key(key)
+            return self.running
+
+        if key == "i":
             self.mode = Mode.INSERT
+            self.visual_anchor = None
+        elif key == "?":
+            self.help_open = True
+            self.help_scroll = 0
+        elif key == "v" and self.focus == Pane.TRANSCRIPT:
+            if self.visual_anchor is None:
+                self.visual_anchor = self._focused_transcript_index()
+            else:
+                self.visual_anchor = None
+        elif key == "y" and self.focus == Pane.TRANSCRIPT:
+            self._yank()
+        elif key == "Y" and self.focus == Pane.TRANSCRIPT:
+            self._yank(whole=True)
+        elif key == "TAB":
+            self._switch_pane()
+        elif key == "CTRL_W":
+            self._pending_ctrl_w = True
+        elif key == "ENTER":
+            if self.focus == Pane.RAIL:
+                self._fold_rail(True)
+            else:
+                self._fold_transcript(True)
+        elif key == "ESC":
+            if self.visual_anchor is not None:
+                self.visual_anchor = None
+            elif self.focus == Pane.RAIL:
+                self._fold_rail(False)
+            else:
+                self._fold_transcript(False)
         elif key == "CTRL_B":
             self.rail_visible = not self.rail_visible
+            if not self.rail_visible:
+                self.focus = Pane.TRANSCRIPT
         elif key == ":":
             self.command = ":"
-        elif key in {"j", "l", "DOWN", "RIGHT"}:
+        elif key in {"j", "DOWN"}:
+            self._move_rail(1) if self.focus == Pane.RAIL else self._move(-1)
+        elif key in {"k", "UP"}:
+            self._move_rail(-1) if self.focus == Pane.RAIL else self._move(1)
+        elif key in {"l", "RIGHT"}:
             self._move(-1)
-        elif key in {"k", "h", "UP", "LEFT"}:
+        elif key in {"h", "LEFT"}:
             self._move(1)
         elif key in {"CTRL_D", "PGDN"}:
             _width, body_height, _centre = self._body_size()
@@ -315,11 +642,14 @@ class App:
             self._move(max(1, body_height // 2))
         elif key in {"G", "END"}:
             self.scroll_offset = 0
+            self.transcript_cursor = 0
         elif key == "HOME":
             self.scroll_offset = self._max_offset()
+            self.transcript_cursor = max(0, len(self._all_transcript_lines()) - 1)
         elif key == "g":
             if self._pending_g:
                 self.scroll_offset = self._max_offset()
+                self.transcript_cursor = max(0, len(self._all_transcript_lines()) - 1)
                 self._pending_g = False
             else:
                 self._pending_g = True
@@ -330,36 +660,86 @@ class App:
 
     # ---------------------------------------------------------------- drawing
 
+    def _help_frame(self) -> list[Line]:
+        width, height = self.screen.size()
+        panel_width = max(4, min(80, width - 4))
+        content = self._help_content()
+        inner_height = max(1, min(height - 4, len(content)))
+        self.help_scroll = min(self.help_scroll, max(0, len(content) - inner_height))
+        shown = content[self.help_scroll:self.help_scroll + inner_height]
+        panel_height = inner_height + 2
+        top = max(0, (height - panel_height) // 2)
+        left = max(0, (width - panel_width) // 2)
+        rows = [Line(" " * width, "body") for _ in range(height)]
+        border = "─" * max(0, panel_width - 2)
+        panel = ["┌" + border + "┐"]
+        panel.extend("│" + fit(value, panel_width - 2) + "│" for value in shown)
+        panel.append("└" + border + "┘")
+        for index, value in enumerate(panel):
+            text = " " * left + value + " " * max(0, width - left - cell_width(value))
+            style = "rule_strong" if index in {0, len(panel) - 1} else "body"
+            rows[top + index] = Line(
+                fit(text, width), style,
+                (Span(" " * left, "body"), Span(value, style, "panel"),
+                 Span(" " * max(0, width - left - cell_width(value)), "body")),
+            )
+        return rows
+
     def _rail_lines(self, height: int) -> list[Line]:
         lines: list[Line] = []
-        for label, value, style in self.rail_facts:
+        facts = self._visible_rail_facts()
+        self.rail_index = min(self.rail_index, max(0, len(facts) - 1))
+        for index, (label, value, style) in enumerate(facts):
             if label.startswith("#"):
-                lines.append(Line(fit(label[1:].upper(), RAIL_WIDTH - 1), "dim"))
+                text = label[1:].upper()
+                if label in self.collapsed_groups:
+                    text += f" [{value}]"
+                shown = fit(text, RAIL_WIDTH - 1)
+                token = "strong" if index == self.rail_index and self.focus == Pane.RAIL else "dim"
+                spans = (Span(shown, token, "panel"),) if token == "strong" else ()
+                lines.append(Line(shown, token, spans))
                 continue
             available = RAIL_WIDTH - 2
             label_width = min(9, available)
             value_width = max(0, available - label_width - 1)
             text = (fit(str(label), label_width) + " "
                     + fit(str(value), value_width, pad=False))
-            lines.append(Line(fit(text, RAIL_WIDTH - 1), style))
+            shown = fit(text, RAIL_WIDTH - 1)
+            selected = index == self.rail_index and self.focus == Pane.RAIL
+            lines.append(Line(
+                shown, "strong" if selected else style,
+                (Span(shown, "strong", "panel"),) if selected else (),
+            ))
         return lines[:height]
 
     def _frame(self) -> list[Line]:
+        if self.help_open:
+            return self._help_frame()
         width, height = self.screen.size()
         _full_width, body_height, centre = self._body_size()
         durable = self._transcript(centre)
         # The in-flight tail is rebuilt each frame: it is small and it is what is moving.
         flight = render((), self.in_flight, centre, -1, self.theme) if self.in_flight else []
-        transcript = viewport(durable + flight, body_height, self.scroll_offset)
+        all_transcript = durable + flight
+        transcript = viewport(all_transcript, body_height, self.scroll_offset)
+        transcript_start = max(0, len(all_transcript) - self.scroll_offset - body_height)
         rail = self._rail_lines(body_height)
         rows: list[Line] = []
         for index in range(body_height):
             right = transcript[index] if index < len(transcript) else Line("", "body")
             right_spans = right.spans or (Span(right.text, right.style),)
+            if self.visual_anchor is not None and index < len(transcript):
+                current = self._focused_transcript_index()
+                if current is not None:
+                    lo, hi = sorted((self.visual_anchor, current))
+                    if lo <= transcript_start + index <= hi:
+                        right_spans = tuple(Span(span.text, span.style, "panel")
+                                            for span in right_spans)
             if self.rail_visible:
                 left = rail[index] if index < len(rail) else Line(" " * (RAIL_WIDTH - 1), "panel")
                 left_spans = left.spans or (Span(left.text, left.style),)
-                spans = (*left_spans, Span("│", "rule"), *right_spans)
+                separator = "rule_strong" if self.focus == Pane.TRANSCRIPT else "rule"
+                spans = (*left_spans, Span("│", separator), *right_spans)
             else:
                 spans = right_spans
             text = "".join(span.text for span in spans)
@@ -381,11 +761,26 @@ class App:
     def _status(self) -> str:
         if self.draw_error:
             return f"DRAW FAILED · {self.draw_error}"
-        if self.notice:
-            return self.notice
-        state = "compacting" if self.compacting else ("streaming" if self.busy else "transcript")
-        prefix = "MEMORY" if self.show_notes else ""
-        return f"{self.mode.value} · {state}" + (f" · {prefix}" if prefix else "")
+        parts = [self.mode.value, self.focus.value]
+        if self.compacting:
+            parts.append("compacting")
+        elif self.busy:
+            parts.append("streaming")
+        explanation = self.notice or self._focused_hint()
+        if explanation:
+            parts.append(explanation)
+        return " · ".join(parts)
+
+    def _focused_hint(self) -> str:
+        if self.focus == Pane.RAIL:
+            facts = self._visible_rail_facts()
+            if not facts:
+                return ""
+            key = str(facts[min(self.rail_index, len(facts) - 1)][0]).lstrip("#")
+        else:
+            line = self._focused_transcript_line()
+            key = line.record_kind if line is not None else None
+        return HINTS.get(key, "")
 
     def _status_style(self) -> str:
         if self.draw_error:
@@ -408,7 +803,7 @@ class App:
         """Paint only when the frame differs from the last one: an idle TUI must write nothing."""
         try:
             lines = self._frame()
-            key = tuple((line.text, line.style) for line in lines)
+            key = (self.theme, tuple(lines))
             self.screen.resized = False
             if not force and key == self._frame_key:
                 self._pending_draw = False
@@ -438,6 +833,8 @@ class App:
                     key = poll(0.05) if poll is not None else self.screen.read_key()
                     if key is not None:
                         self.handle_key(key)
+                        changed = True
+                    if self._notice_expired():
                         changed = True
                     if changed or self._pending_draw:
                         self._redraw_soon()

@@ -19,6 +19,7 @@ from .theme import palette
 class Span:
     text: str
     style: str
+    background: str | None = None
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,10 @@ class Line:
     text: str
     style: str
     spans: tuple[Span, ...] = ()
+    record_id: int | None = None
+    record_kind: str | None = None
+    source_text: str | None = None
+    source_index: int | None = None
 
 
 # Per-character width is asked for constantly and never changes.
@@ -115,7 +120,16 @@ def _wrap_runs(spans: Iterable[Span], width: int) -> list[Line]:
 
 
 def wrap(text: str, width: int, style: str) -> list[Line]:
-    return _wrap_runs((Span(text, style),), width)
+    """Wrap text while retaining the exact logical source line for yanking."""
+    logical = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines: list[Line] = []
+    for source_index, source in enumerate(logical):
+        for line in _wrap_runs((Span(source, style),), width):
+            lines.append(Line(
+                line.text, line.style, line.spans, source_text=source,
+                source_index=source_index,
+            ))
+    return lines
 
 
 def _field(item: Any, name: str, default: Any = None) -> Any:
@@ -149,10 +163,17 @@ ECHO_LINES = 2
 def _echo(text: str, width: int) -> list[Line]:
     logical = text.splitlines() or [""]
     lines: list[Line] = []
-    for value in logical[:ECHO_LINES]:
-        lines.extend(wrap(value, width, "dim"))
+    for source_index, value in enumerate(logical[:ECHO_LINES]):
+        lines.extend(Line(
+            line.text, line.style, line.spans, source_text=value,
+            source_index=source_index,
+        ) for line in wrap(value, width, "dim"))
     if len(logical) > ECHO_LINES:
-        lines.extend(wrap(f"… {len(logical) - ECHO_LINES} more", width, "dim"))
+        remaining = "\n".join(logical[ECHO_LINES:])
+        lines.extend(Line(
+            line.text, line.style, line.spans, source_text=remaining,
+            source_index=ECHO_LINES,
+        ) for line in wrap(f"… {len(logical) - ECHO_LINES} more", width, "dim"))
     return lines
 
 
@@ -161,20 +182,32 @@ def record_lines(record: Any, width: int, *, show_notes: bool = False,
     """One record's lines. ``show_notes`` includes imported memory; ``collapsed`` keeps one line."""
     kind = _field(record, "kind", "")
     text = _field(record, "text", "")
+    record_id = _field(record, "i")
+
+    def tagged(lines: list[Line]) -> list[Line]:
+        return [Line(
+            line.text, line.style, line.spans, record_id=record_id, record_kind=kind,
+            source_text=line.source_text if line.source_text is not None else text,
+            source_index=line.source_index,
+        ) for line in lines]
+
     if kind == "note":
         if not show_notes:
             return []
         head = text.strip().splitlines()[0] if text.strip() else ""
-        return [Line(fit(f"note · {head}", width, ellipsis="…", pad=False), "dim")]
+        return tagged([Line(fit(f"note · {head}", width, ellipsis="…", pad=False), "dim")])
     if collapsed and kind in {"will", "user", "echo"}:
         head = text.strip().splitlines()[0] if text.strip() else ""
-        return [Line(fit(head, width, ellipsis="…", pad=False), "dim")]
+        return tagged([Line(
+            fit(head, width, ellipsis="…", pad=False), "dim",
+            source_text=head, source_index=0,
+        )])
     if kind == "user":
-        return wrap(text, width, "you")
+        return tagged(wrap(text, width, "you"))
     if kind == "will":
-        return wrap(text, width, "body")
+        return tagged(wrap(text, width, "body"))
     if kind == "echo":
-        return _echo(text, width)
+        return tagged(_echo(text, width))
     if kind == "work":
         if text.startswith("[") and "]" in text:
             end = text.index("]") + 1
@@ -182,17 +215,17 @@ def record_lines(record: Any, width: int, *, show_notes: bool = False,
             shown = fit(body.lstrip(), max(1, width - cell_width(tag) - 1),
                         ellipsis="…", pad=False)
             spans = (Span(tag, "amber"), Span(" " + shown, "dim"))
-            return [Line(tag + " " + shown, "amber", spans)]
-        return [Line(fit(text, width, ellipsis="…", pad=False), "dim")]
+            return tagged([Line(tag + " " + shown, "amber", spans)])
+        return tagged([Line(fit(text, width, ellipsis="…", pad=False), "dim")])
     if kind == "tool":
         try:
             packet = json.loads(text)
         except (TypeError, json.JSONDecodeError):
             packet = {}
         if isinstance(packet, dict) and isinstance(packet.get("name"), str):
-            return _tool_line(packet["name"], packet.get("arguments"), width)
-        return wrap("→ " + text, width, "dim")
-    return wrap(text, width, "body")
+            return tagged(_tool_line(packet["name"], packet.get("arguments"), width))
+        return tagged(wrap("→ " + text, width, "dim"))
+    return tagged(wrap(text, width, "body"))
 
 
 # A blank line separates conversation blocks; tool traffic stays tight under its call.
@@ -208,11 +241,19 @@ def _flight_lines(events: Iterable[Any], width: int) -> list[Line]:
         nonlocal pending_kind, pending_text
         if pending_text:
             if pending_kind == "reasoning":
-                lines.extend(_wrap_runs((
+                produced = _wrap_runs((
                     Span("│ ", "rule_strong"), Span(pending_text, "reason"),
-                ), width))
+                ), width)
+                lines.extend(Line(
+                    line.text, line.style, line.spans, record_kind="reasoning",
+                    source_text=pending_text, source_index=0,
+                ) for line in produced)
             else:
-                lines.extend(wrap(pending_text, width, "body"))
+                produced = wrap(pending_text, width, "body")
+                lines.extend(Line(
+                    line.text, line.style, line.spans, record_kind="will",
+                    source_text=line.source_text, source_index=line.source_index,
+                ) for line in produced)
         pending_kind = None
         pending_text = ""
 
@@ -227,15 +268,27 @@ def _flight_lines(events: Iterable[Any], width: int) -> list[Line]:
             continue
         flush()
         if event_name == "user":
-            lines.extend(wrap(str(_field(event, "text", "")), width, "you"))
+            produced = wrap(str(_field(event, "text", "")), width, "you")
+            lines.extend(Line(
+                line.text, line.style, line.spans, record_kind="user",
+                source_text=line.source_text, source_index=line.source_index,
+            ) for line in produced)
         elif event_name == "tool_call":
-            lines.extend(_tool_line(
+            produced = _tool_line(
                 str(_field(event, "name", "tool")),
                 _field(event, "arguments"), width,
                 _field(event, "elapsed_ms"),
-            ))
+            )
+            lines.extend(Line(
+                line.text, line.style, line.spans, record_kind="tool",
+                source_text=str(_field(event, "arguments", "")),
+            ) for line in produced)
         elif event_name == "tool_result":
-            lines.extend(_echo(str(_field(event, "result", "")), width))
+            produced = _echo(str(_field(event, "result", "")), width)
+            lines.extend(Line(
+                line.text, line.style, line.spans, record_kind="echo",
+                source_text=line.source_text,
+            ) for line in produced)
         elif event_name == "notice":
             lines.extend(wrap(str(_field(event, "text", "")), width, "red"))
     flush()
@@ -252,7 +305,7 @@ def viewport(lines: list[Line], height: int, offset: int = 0) -> list[Line]:
 
 
 def render(records, in_flight, width, height, theme, *,
-           show_notes: bool = False) -> list[Line]:
+           show_notes: bool = False, collapsed_records=()) -> list[Line]:
     """Render durable records plus ephemeral stream events, without any I/O."""
     colours = palette(theme)
     width = max(1, width)
@@ -262,7 +315,10 @@ def render(records, in_flight, width, height, theme, *,
         if record is None:
             continue
         kind = _field(record, "kind", "")
-        produced = record_lines(record, width, show_notes=show_notes)
+        produced = record_lines(
+            record, width, show_notes=show_notes,
+            collapsed=_field(record, "i") in collapsed_records,
+        )
         if not produced:
             continue
         if kind != previous_kind and previous_kind in _SPACED and kind in _SPACED:

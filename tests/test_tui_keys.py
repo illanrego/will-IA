@@ -4,7 +4,9 @@ import pytest
 
 from willia.store import Record
 from willia import cli
-from willia.tui.app import App, Mode
+from willia.config import Config
+from willia.tui.app import App, Mode, Pane
+from willia.tui.screen import Screen
 
 
 class FakeLog:
@@ -56,7 +58,7 @@ def test_insert_mode_editing_send_and_escape():
     assert app.buffer == "hi\n!"
     app.handle_key("ESC")
     assert app.mode == Mode.NORMAL
-    press(app, "ENTER", "CTRL_U", "o", "n", "e", " ", "t", "w", "o", "CTRL_W")
+    press(app, "i", "CTRL_U", "o", "n", "e", " ", "t", "w", "o", "CTRL_W")
     assert app.buffer == "one "
     app.handle_key("ENTER")
     app.join_turn()
@@ -102,14 +104,135 @@ def test_normal_scroll_motions_gg_and_G():
     assert app.scroll_offset == 0
 
 
+def test_focus_rail_selection_fold_and_contextual_hint():
+    facts = [
+        ("#memory", "", "dim"), ("l0", "20", "data"), ("l1", "10", "data"),
+        ("#view", "", "dim"), ("state", "settled · 2 unbuilt", "amber"),
+        ("queue", "2", "data"),
+    ]
+    app = App(FakeChat(), FakeScreen(), rail_facts=facts)
+    assert app.focus == Pane.TRANSCRIPT
+    assert "transcript" in app._status()
+    app.handle_key("TAB")
+    assert app.focus == Pane.RAIL
+    assert "memory tree" in app._status()
+    app.handle_key("j")
+    assert app.rail_index == 1
+    assert "One line per message" in app._status()
+    app.handle_key("ENTER")
+    assert "#memory" in app.collapsed_groups
+    assert [fact[0] for fact in app._visible_rail_facts()] == [
+        "#memory", "#view", "state", "queue"]
+    app.handle_key("ESC")
+    assert "#memory" not in app.collapsed_groups
+
+
+def test_transcript_fold_targets_only_the_record_under_the_cursor():
+    chat = FakeChat()
+    chat.log.records = [
+        Record(0, "user", "first line\nsecond line", 22, "2026-10-14T00:00:00Z"),
+        Record(1, "user", "separate record\nwith tail", 25, "2026-10-14T00:00:00Z"),
+    ]
+    app = App(chat, FakeScreen())
+    assert app._focused_transcript_line().record_id == 1
+    app.handle_key("ENTER")
+    assert app.collapsed_records == {1}
+    lines = app._transcript(app._body_size()[2])
+    assert [line.text for line in lines] == ["first line", "second line", "separate record"]
+    app.handle_key("ESC")
+    assert app.collapsed_records == set()
+
+
+def test_ctrl_w_moves_directly_between_panes_and_within_the_rail():
+    app = App(FakeChat(), FakeScreen(), rail_facts=[
+        ("#memory", "", "dim"), ("l0", "20", "data")])
+    press(app, "CTRL_W", "h")
+    assert app.focus == Pane.RAIL
+    press(app, "CTRL_W", "j")
+    assert app.rail_index == 1
+    press(app, "CTRL_W", "l")
+    assert app.focus == Pane.TRANSCRIPT
+
+
 def test_q_help_and_unknown_commands():
     app = App(FakeChat(), FakeScreen())
     press(app, ":", "h", "e", "l", "p", "ENTER")
-    assert ":q" in app.notice
+    assert app.help_open is True
+    app.handle_key("q")
+    assert app.help_open is False
     press(app, ":", "n", "o", "p", "e", "ENTER")
     assert "Unknown command" in app.notice
     press(app, ":", "q", "ENTER")
     assert app.running is False
+
+
+def test_line_record_and_visual_range_yanks_use_log_text():
+    class CopyScreen(FakeScreen):
+        def __init__(self):
+            self.copied = []
+
+        def copy(self, text):
+            self.copied.append(text)
+
+    chat = FakeChat()
+    chat.log.records = [Record(
+        0, "user", "alpha\nbeta\ngamma", 16, "2026-10-14T00:00:00Z")]
+    screen = CopyScreen()
+    app = App(chat, screen)
+
+    app.handle_key("y")
+    assert screen.copied[-1] == "gamma"
+    app.handle_key("Y")
+    assert screen.copied[-1] == "alpha\nbeta\ngamma"
+    press(app, "v", "k", "y")
+    assert screen.copied[-1] == "beta\ngamma"
+    assert app.visual_anchor is None
+    assert app.notice == "yanked 10 bytes"
+
+
+def test_help_overlay_scrolls_and_closes_without_touching_transcript_scroll():
+    app = App(FakeChat(), FakeScreen())
+    app.handle_key("k")
+    before = app.scroll_offset
+    app.handle_key("?")
+    assert app.help_open is True
+    app.handle_key("j")
+    assert app.help_scroll == 1
+    assert app.scroll_offset == before
+    app.handle_key("ESC")
+    assert app.help_open is False
+    assert app.scroll_offset == before
+
+
+def test_theme_command_repaints_with_new_sgr_and_refuses_unknown_names():
+    class ColourScreen(FakeScreen):
+        def __init__(self):
+            self.writes = []
+
+        def draw(self, lines, theme):
+            Screen(input_fd=-1, writer=self.writes.append, depth=24).draw(lines, theme)
+
+    screen = ColourScreen()
+    app = App(FakeChat(), screen)
+    app.redraw(force=True)
+    blue = screen.writes[-1]
+    press(app, ":", "t", "h", "e", "m", "e", " ", "g", "r", "e", "e", "n", "ENTER")
+    app.redraw()
+    green = screen.writes[-1]
+    assert app.theme == "green"
+    assert blue != green
+    assert "\x1b[48;2;5;10;9m" in green
+
+    press(app, ":", "t", "h", "e", "m", "e", " ", "n", "o", "p", "e", "ENTER")
+    assert app.theme == "green"
+    assert app.notice == "unknown theme: nope"
+
+
+def test_tui_theme_config_defaults_to_blue_and_loads_a_choice(tmp_path):
+    assert Config.load(tmp_path / "missing.json").tui.theme == "blue"
+    path = tmp_path / "config.json"
+    path.write_text('{"tui":{"theme":"mixed"}}', encoding="utf-8")
+    assert Config.load(path).tui.theme == "mixed"
 
 
 def test_a_burst_of_stream_deltas_is_coalesced_into_few_draws():
@@ -189,6 +312,28 @@ def test_notes_are_hidden_by_default_and_visible_with_the_command():
     press(app, ":", "n", "o", "t", "e", "s", "ENTER")
     assert app.show_notes is True
     assert [line.text for line in app._transcript(20)] == ["note · memory"]
+
+
+def test_every_rail_row_explains_itself():
+    """A mute row is a dead end: every label the rail actually produces needs a hint."""
+    facts = [
+        ("#memory", "", "dim"), ("l0", "6", "data"), ("nodes", "6", "data"),
+        ("#view", "", "dim"), ("bytes", "120 B", "data"), ("64K-128K", "────●───", "data"),
+        ("state", "settled · 0 unbuilt", "ok"),
+        ("queue", "0", "data"), ("newest", "5", "body"), ("#facts", "", "dim"),
+        ("session", "abc12345", "body"), ("cache", "95.3%", "data"), ("jobs", "1", "body"),
+        ("go", "3 / 14 / 24%", "data"), ("resets", "3h44m / 4d17h", "body"), ("model", "m", "body"),
+    ]
+    app = App(FakeChat(), FakeScreen(), rail_facts=facts)
+    app.handle_key("TAB")
+    assert app.focus.value == "rail"
+    mute = []
+    for _ in range(len(facts) + 2):
+        hint = app._focused_hint()
+        if not hint:
+            mute.append(app._selected_rail_identity())
+        app.handle_key("j")
+    assert not mute, f"rail rows with no explanation: {mute}"
 
 
 def test_ctrl_b_collapses_the_rail_and_gives_the_width_back():

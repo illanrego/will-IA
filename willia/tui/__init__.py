@@ -106,7 +106,7 @@ def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
         "state": (("settled" if settled else "building") + f" · {unbuilt} unbuilt",
                   "ok" if settled and not unbuilt else "amber"),
         "queue": (str(queue_depth), "data"),
-        "newest": (str(chat.log.count() - 1) if chat.log.count() else "none", "body"),
+        "here": (str(chat.log.count() - 1) if chat.log.count() else "none", "body"),
         "#facts": ("", "dim"),
         "session": (chat.session[:8], "body"),
         "cache": (cache, "data"),
@@ -132,7 +132,7 @@ def run(chat) -> None:
 
     threading.Thread(target=fetch_windows, name="willia-tui-usage", daemon=True).start()
     source = lambda blocking=False: build_rail_facts(chat, windows, blocking=blocking)
-    App(chat, Screen(), rail_source=source).run()
+    App(chat, Screen(), rail_source=source, theme=chat.config.tui.theme).run()
 
 
 __all__ = ["build_rail_facts", "run"]

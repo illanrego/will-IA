@@ -87,6 +87,11 @@ class ReplConfig:
 
 
 @dataclass(frozen=True)
+class TuiConfig:
+    theme: str = "blue"
+
+
+@dataclass(frozen=True)
 class Paths:
     root: Path
     main_dir: Path
@@ -306,6 +311,12 @@ def _repl(data: dict[str, Any]) -> ReplConfig:
     )
 
 
+def _tui(data: dict[str, Any]) -> TuiConfig:
+    _warn_unknown(data, {"theme"}, "tui")
+    defaults = TuiConfig()
+    return TuiConfig(theme=_expect(data, "theme", defaults.theme, str, "tui"))
+
+
 @dataclass(frozen=True)
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -323,6 +334,7 @@ class Config:
     vision: VisionConfig = field(default_factory=VisionConfig)
     delegates: DelegatesConfig = field(default_factory=DelegatesConfig)
     repl: ReplConfig = field(default_factory=ReplConfig)
+    tui: TuiConfig = field(default_factory=TuiConfig)
     root: Path = field(default_factory=data_root)
     config_file: Path = field(default_factory=lambda: data_root() / "config.json")
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -348,7 +360,7 @@ class Config:
             "model", "view_min_bytes", "view_max_bytes", "node_bytes",
             "compact_view_min_bytes", "compact_view_max_bytes", "compact_enabled",
             "compact_concurrency", "compact_max_retries", "tool_clip_chars", "workspace", "web",
-            "vision", "delegates", "repl",
+            "vision", "delegates", "repl", "tui",
         }
         _warn_unknown(raw, known)
         workspace = _expect(raw, "workspace", DEFAULT_WORKSPACE, str)
@@ -368,6 +380,7 @@ class Config:
             vision=_vision(_object(raw, "vision")),
             delegates=_delegates(_object(raw, "delegates"), workspace),
             repl=_repl(_object(raw, "repl")),
+            tui=_tui(_object(raw, "tui")),
             root=root,
             config_file=config_file,
             raw=raw,

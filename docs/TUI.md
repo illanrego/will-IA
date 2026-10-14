@@ -85,11 +85,17 @@ Each slice is one Codex run with its own acceptance, and each is rideable rather
   Acceptance: the terminal restores on every exit path; a real turn streams with reasoning and answer
   visually distinct; `j k Ctrl-d Ctrl-u gg G` scroll continuously inside the app; the renderer is a pure
   function and is tested without a tty.
-- **P5b — focus and the hint line.** Pane focus, folding, and the focused thing's explanation on the
-  bottom line, drawn from the 005 texts.
-- **P5c — yank, clipboard, help.** `y`/`Y`/visual-range yank through OSC 52 with the tool fallback, and
-  the `?` overlay.
-- **P5d — themes.** `:theme blue|green|mixed` plus a `tui.theme` config default, switching live.
+- **P5b — focus and the hint line. LANDED.** Pane focus (`Tab`, or `Ctrl-w h/j/k/l`), rail selection
+  that survives a refresh, fold/unfold on `Enter`/`Esc`, and the focused thing's explanation on the
+  bottom line from `willia/tui/hints.py` — which must cover **every** row the rail produces, asserted
+  by a test, because a mute row is a dead end.
+- **P5c — yank, clipboard, help. LANDED.** `y`/`Y`/visual-range yank copy the **record's own text from
+  the log**, not the rendered line; `willia/tui/clipboard.py` emits OSC 52 and additionally pipes to
+  `wl-copy`/`xclip` when a display is set, bounded at 0.5 s, with every failure silent. The `?` overlay
+  scrolls and closes without moving the transcript.
+- **P5d — themes. LANDED.** `:theme blue|green|mixed` switches live and refuses an unknown name;
+  `tui.theme` sets the default, and the loader reads that default from the dataclass so the two cannot
+  drift.
 
 `willia --tui` stays an explicit flag until P5c lands; the REPL remains the default until the TUI has
 earned the seat, and the flip is its own decision.
