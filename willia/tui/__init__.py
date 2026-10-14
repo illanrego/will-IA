@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -33,6 +35,19 @@ def _countdown(value, now: datetime) -> str:
     return f"{minutes}m"
 
 
+def _wait_free(chat, seconds: float) -> bool:
+    """Wait at most ``seconds`` for the engine; never for a whole compaction wave."""
+    free = getattr(chat, "engine_free", None)
+    if not callable(free):
+        return True
+    deadline = time.monotonic() + seconds
+    while not free():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
     """Build the layout-neutral ``(label, value, style)`` rail facts.
 
@@ -41,11 +56,12 @@ def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
     """
     now = now or datetime.now(timezone.utc)
     windows = windows or {}
-    if not blocking:
-        free = getattr(chat, "engine_free", None)
-        if callable(free) and not free():
+    if not _wait_free(chat, 0.4 if blocking else 0.0):
+        return None
+    engine = getattr(chat, "engine_try", None)
+    with (engine() if callable(engine) else chat._engine()) as taken:
+        if taken is False:
             return None
-    with chat._engine():
         levels = Counter(level for level, _index in chat.tree.nodes())
         view_bytes = len(chat.view.render().encode("utf-8"))
         settled = chat.view.settled()
@@ -103,12 +119,19 @@ def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
 
 
 def run(chat) -> None:
-    try:
-        windows = usage.subscription_windows(chat.config)
-    except Exception:
-        windows = {}
-    source = lambda blocking=True: build_rail_facts(chat, windows, blocking=blocking)
-    App(chat, Screen(), rail_facts=source(blocking=True), rail_source=source).run()
+    """Start the TUI. Nothing here may wait: a network fetch or a drain wave on the startup path
+    leaves the terminal blank for as long as it takes, which is exactly how it failed once."""
+    windows: dict = {}
+
+    def fetch_windows() -> None:
+        try:
+            windows.update(usage.subscription_windows(chat.config))
+        except Exception:
+            pass
+
+    threading.Thread(target=fetch_windows, name="willia-tui-usage", daemon=True).start()
+    source = lambda blocking=False: build_rail_facts(chat, windows, blocking=blocking)
+    App(chat, Screen(), rail_source=source).run()
 
 
 __all__ = ["build_rail_facts", "run"]

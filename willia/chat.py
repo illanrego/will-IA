@@ -119,6 +119,21 @@ class Chat:
         with self._engine_lock:
             yield
 
+    @contextmanager
+    def engine_try(self):
+        """Take the engine only if it is free; yield whether that worked.
+
+        A drain wave holds this lock across a whole compaction pass, so a display read uses this
+        and reuses its last frame when the engine is busy.
+        """
+        if self._engine_lock.acquire(blocking=False):
+            try:
+                yield True
+            finally:
+                self._engine_lock.release()
+        else:
+            yield False
+
     def engine_free(self) -> bool:
         """True when the engine lock is free right now.
 
