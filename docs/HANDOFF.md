@@ -17,17 +17,17 @@ runner: `~/.hermes/tools/uv-0.12.3-linux-x64/uv`.
 ## Read first, in this order
 
 1. `docs/README.md` — non-negotiables, repo map, reading order.
-2. `docs/PHASES.md` — **the live phase state** (P2 is closed, P3's tooling is in) and each phase's
+2. `docs/PHASES.md` — **the live phase state** (P2 is closed, P3's tooling is in, P4's first batch has landed) and each phase's
    acceptance criteria.
 3. `docs/ENGINE.md` §0 (canon and precedence), §8 (the Hermes surface that was removed), §9 (canon
    conformance claim by claim).
 4. `docs/WIRE-FORMATS.md` §1 (the wire, measured) and §9 (the usage surface **and** the meter's own
    line shape).
 5. `docs/DELEGATES.md` — the subprocess contracts.
-6. `docs/TOOLS.md` — the seven-tool array, and §9's parity table for what comes next.
-7. `briefs/P4a.md` — **the next slice, already briefed and deliberately not run.** It carries two
-   decisions owed by Illan and a proposal for five new schemas to red-line before anything is
-   written.
+6. `docs/TOOLS.md` — the twelve-tool array, and §9's parity table for what comes next.
+7. `briefs/P4a.md` — the brief whose batch just landed, kept as the record of its rulings, with
+   `probes/p4a-live-proof.py` as its acceptance. The next brief (P4b, the browser batch) does not
+   exist yet.
 8. `~/.hermes/skills/software-development/willia/SKILL.md` and its `references/opencode-go-wire.md` —
    the workflow, the traps, the Codex model catalog, the notes-import recovery procedure.
 
@@ -37,14 +37,14 @@ runner: `~/.hermes/tools/uv-0.12.3-linux-x64/uv`.
 git -C ~/Documents/coding/willia log --oneline -3
 git -C ~/Documents/coding/willia status --porcelain=v1      # expect clean
 git -C ~/Documents/coding/willia ls-remote origin main      # expect == local HEAD
-~/.hermes/tools/uv-0.12.3-linux-x64/uv run --no-project --with pytest python -m pytest -q  # 272 passed
+~/.hermes/tools/uv-0.12.3-linux-x64/uv run --no-project --with pytest python -m pytest -q  # 294 passed
 willia --status                                             # the real chat's state
 willia --usage                                              # the meter + the plan's windows
 ```
 
-## State as of this handoff (2026-10-13, 25 commits, pushed; HEAD `fc953dc`)
+## State as of this handoff (2026-10-14, 28 commits, pushed; HEAD `dd90044`)
 
-- **P0, P1 and P2 are closed; P3's bootstrap and tooling are in; P3's ride and P4 are open.**
+- **P0, P1 and P2 are closed; P3's bootstrap and tooling are in; P4's first batch is landed.**
   - **P2a** the delegates as real subprocesses; **P2b** the three native tools. P2's acceptance ran
     for real, both ways: a Codex job driven through `dispatch` (`probes/p2-live-proof.py`) and once
     more through a real model turn (`probes/p2-turn-proof.py`), plus real `web_search` /
@@ -52,8 +52,12 @@ willia --usage                                              # the meter + the pl
   - **P3 tooling:** 134 `note` records imported; the usage meter landed (`willia --usage`,
     `<root>/logs/usage.jsonl`, `WIRE-FORMATS` §9) with a read-only `scripts/session-report.py`. Both
     were exercised against the live account (`probes/p3-usage-proof.py`). **What remains is his ride.**
-- **272 tests green** (was 241 at the last handoff). Live evidence now includes two real Codex jobs,
-  real web and vision calls, and a real plan-window read.
+  - **P4a landed:** `terminal`, `read_file`, `write_file`, `patch`, `search_files` - the array is 12
+    tools now. The prompt gained a constant, code-owned `TOOL_GROUPS` block. Measured: the prefix
+    rewrote once and the next call read 95.3% of it; `probes/p4a-live-proof.py` ran all five for real
+    and a real turn called `terminal` itself.
+- **294 tests green** (241 -> 272 -> 294). Live evidence now includes two real Codex jobs, real web
+  and vision calls, a real plan-window read, and the shell batch's own round trip.
 - **Vision is on the Go route**, with the chat's own model, not OpenRouter — Illan's call, then
   measured (`probes/willia-probe-vision.py`: HTTP 200 in either part order). The relay's
   list-content restriction is about **tool** messages only.
@@ -64,19 +68,21 @@ willia --usage                                              # the meter + the pl
   dependency, `ddgs`; after changing dependencies run
   `~/.hermes/tools/uv-0.12.3-linux-x64/uv tool install --editable . --force`.
 - **The prompt is per chat.** `Chat.open` writes `~/.willia/prompt.md` only when it is absent, so
-  editing `willia/prompt-default.md` reaches new chats only — that gap is Decision 1 in
-  `briefs/P4a.md`, and it is why a tool batch cannot be landed silently.
+  editing `willia/prompt-default.md` reaches new chats only. That is why a tool batch carries a
+  constant, code-owned block (`prompts.TOOL_GROUPS`) instead. **His `~/.willia/prompt.md` line 11
+  still reads "You have no device shell and no computer-use tool"**, and the block says that line is
+  out of date - so the chat works, but the sentence is stale and he may want it gone.
 
 ## Next, in order
 
-1. **Take the two decisions in `briefs/P4a.md`** — how an existing chat learns a new tool set, and
-   what `terminal` is allowed to do — and red-line the five proposed schemas. Nothing in that batch
-   is implemented today; the five schemas do not exist in `docs/TOOLS.md`, and only he should write
-   an interface that becomes the cache anchor. Then run the brief as one Codex pass.
-2. **His first real ride with tools** (P3 item 2). Each failure the ride surfaces gets a repro, a
-   fix, a test and a commit — the engine's own `FINDINGS.md` discipline carried over.
-3. **Then the remaining P4 batches**, in this order: browser, computer use, voice, cron, MCP,
-   skills. Each rewrites the cache prefix once, then freezes.
+1. **His first real ride with the new tools** (P3 item 2, still outstanding). Each failure the ride
+   surfaces gets a repro, a fix, a test and a commit — the `FINDINGS.md` discipline carried over.
+   `terminal` is the one to watch: it is ungated by design.
+2. **The remaining P4 batches**, in this order: browser, computer use, voice, cron, MCP, skills — and
+   the planning `todo`, which P4a deliberately skipped. Each rewrites the cache prefix once, then
+   freezes. The next brief is P4b, citing `TOOLS.md` §9.
+3. **The TUI last** — Illan's ruling, 2026-10-14: finish the software, then replace the line-based
+   REPL (`SCOPE.md` question 3, `PHASES.md` P4).
 
 ## The rules he holds you to
 
@@ -108,7 +114,9 @@ willia --usage                                              # the meter + the pl
   the whole offline suite stays green — the tool call still returns `started` and one honest `work`
   record still lands. This is why the delegate acceptance needs a **real** job.
 - **The prompt is a per-chat, seeded file**, so a tool batch cannot reach an existing chat by editing
-  the repo default. Check both before promising a batch changed the model's behaviour.
+  the repo default. Check both before promising a batch changed the model's behaviour. The batch must
+  also carry a constant block *and* a sentence that supersedes the stale line in the user's own copy,
+  or the model is told it has no tool it demonstrably has.
 - **The suite must never touch `~/.willia`.** `tests/conftest.py` points `WILLIA_HOME` at a temp
   directory for every test, because the meter appends on every model call and some client tests build
   a `Config` whose root defaults to the real chat.
