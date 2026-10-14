@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>will.I.A. — variant 1: wired, calm</title>
+<style>
+  :root {
+    --bg: #05070E;
+    --panel: #080C16;
+    --rule: rgba(127, 212, 255, .10);
+    --rule-strong: rgba(127, 212, 255, .22);
+    --body: #DCE6F5;
+    --dim: #4A5A75;
+    --agent: #7FD4FF;
+    --reason: #43536D;
+    --amber: #FFB454;
+    --red: #FF5A5F;
+    --ok: #6FE3C0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--body);
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 27ch 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  /* ---------- the ladder ---------- */
+  .rail {
+    grid-row: 1;
+    padding: 22px 18px 18px 22px;
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    overflow: hidden;
+  }
+  .k {
+    color: var(--dim);
+    font-size: 10px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+  }
+  .levels { display: flex; flex-direction: column; gap: 2px; }
+  .lvl { display: grid; grid-template-columns: 3ch 1fr 4ch; gap: 8px; align-items: center; }
+  .lvl .i { color: var(--dim); font-size: 11px; }
+  .lvl .bar { color: var(--agent); opacity: .55; font-size: 11px; letter-spacing: -1px; }
+  .lvl.hot .bar { opacity: 1; }
+  .lvl .n { color: var(--dim); font-size: 11px; text-align: right; }
+  .total { color: var(--dim); font-size: 11px; }
+
+  .gauge { color: var(--dim); font-size: 11px; }
+  .gauge .track { color: var(--rule-strong); }
+  .gauge .mark { color: var(--agent); }
+  .state { color: var(--ok); font-size: 11px; }
+  .state .off { color: var(--dim); }
+
+  /* ---------- the turn ---------- */
+  .stage { grid-row: 1; padding: 26px 30px; overflow-y: auto; }
+  .who { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; }
+  .say { margin: 4px 0 22px; color: var(--body); }
+  .say.you { color: #F2F7FF; }
+
+  .think { border-left: 1px solid var(--rule-strong); padding-left: 14px; margin: 0 0 20px; }
+  .think summary { list-style: none; cursor: pointer; }
+  .think summary::-webkit-details-marker { display: none; }
+  .think .body { color: var(--reason); font-size: 12.5px; }
+  .think .body p { margin: 6px 0; }
+
+  .answer { margin: 0 0 22px; }
+  .answer strong { color: #F4F9FF; font-weight: 500; }
+
+  .packets { display: flex; flex-direction: column; gap: 4px; margin: 0 0 22px; }
+  .pkt { display: grid; grid-template-columns: 2ch 9ch 1fr 3ch; gap: 10px; align-items: baseline; }
+  .pkt .arrow { color: var(--agent); }
+  .pkt .tool { color: var(--agent); }
+  .pkt .args { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pkt .code { text-align: right; color: var(--ok); }
+  .pkt .code.bad { color: var(--red); }
+  .out { margin: 0 0 22px; padding-left: 21px; }
+  .out summary { color: var(--dim); cursor: pointer; list-style: none; font-size: 12px; }
+  .out summary::-webkit-details-marker { display: none; }
+  .out summary:hover { color: var(--agent); }
+  .out pre { color: var(--dim); font-size: 11.5px; margin: 8px 0 0; white-space: pre-wrap; }
+
+  .work { display: flex; gap: 10px; margin: 0 0 22px; }
+  .work .tag { color: var(--amber); }
+  .work .text { color: var(--dim); }
+
+  /* ---------- the line ---------- */
+  .status {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rule);
+    padding: 10px 22px;
+    display: flex;
+    gap: 22px;
+    align-items: baseline;
+    color: var(--dim);
+    font-size: 11px;
+    background: var(--panel);
+  }
+  .status b { color: var(--body); font-weight: 400; }
+  .status .grow { flex: 1; }
+  .keys { color: var(--dim); }
+  .keys kbd {
+    color: var(--agent);
+    font-family: var(--mono);
+    border: 1px solid var(--rule-strong);
+    padding: 0 4px;
+    margin-left: 6px;
+  }
+  .palette { color: var(--dim); }
+  .palette span { color: var(--agent); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="rail">
+    <div>
+      <div class="k">memory</div>
+      <div class="levels">
+        <div class="lvl"><span class="i">l0</span><span class="bar">██████████████████████████</span><span class="n">162</span></div>
+        <div class="lvl"><span class="i">l1</span><span class="bar">█████████████</span><span class="n">81</span></div>
+        <div class="lvl"><span class="i">l2</span><span class="bar">███████</span><span class="n">40</span></div>
+        <div class="lvl"><span class="i">l3</span><span class="bar">███</span><span class="n">20</span></div>
+        <div class="lvl"><span class="i">l4</span><span class="bar">██</span><span class="n">10</span></div>
+        <div class="lvl"><span class="i">l5</span><span class="bar">█</span><span class="n">5</span></div>
+        <div class="lvl"><span class="i">l6</span><span class="bar">▏</span><span class="n">2</span></div>
+        <div class="lvl hot"><span class="i">l7</span><span class="bar">▏</span><span class="n">1</span></div>
+      </div>
+      <div class="total">321 nodes</div>
+    </div>
+
+    <div>
+      <div class="k">view</div>
+      <div class="gauge">76,809 B</div>
+      <div class="gauge"><span class="track">└</span> 64K <span class="track">────────</span><span class="mark">●</span><span class="track">───────────────</span> 128K</div>
+      <div class="state">settled · nothing unbuilt</div>
+    </div>
+
+    <div>
+      <div class="k">queue</div>
+      <div class="gauge"><span class="mark">●</span> <span class="mark">●</span> <span class="track">·</span> <span class="track">·</span></div>
+    </div>
+
+    <div>
+      <div class="k">here</div>
+      <div class="gauge">162 (newest)</div>
+    </div>
+  </aside>
+
+  <main class="stage">
+    <div class="who">illan</div>
+    <div class="say you">the posting CLI broke after the batch — check it and fix it.</div>
+
+    <details class="think" open>
+      <summary class="who">reasoning <span style="color:var(--dim)">— click to fold</span></summary>
+      <div class="body">
+        <p>Posting automation lives at ~/Documents/coding/post-automation. The batch changed what the shell tools can do, not the repo, so a break here is more likely a stale invocation than a real regression.</p>
+        <p>Path is in the view from the notes. Check the repo state first, then run its own suite before I touch anything.</p>
+      </div>
+    </details>
+
+    <div class="who">willia</div>
+    <div class="answer">
+      Its own suite is green and the working tree is clean, so nothing here regressed — <strong>the break is in how the job was launched, not in the repo.</strong> I've delegated the flag-order fix and I'll report.
+    </div>
+
+    <div class="packets">
+      <div class="pkt"><span class="arrow">→</span><span class="tool">terminal</span><span class="args">git -C ~/Documents/coding/post-automation status --porcelain</span><span class="code">0</span></div>
+      <div class="pkt"><span class="arrow">→</span><span class="tool">terminal</span><span class="args">uv run pytest -q</span><span class="code">0</span></div>
+      <div class="pkt"><span class="arrow">→</span><span class="tool">search_files</span><span class="args">--glob *.toml "entry_points"</span><span class="code">0</span></div>
+    </div>
+
+    <details class="out">
+      <summary>3 results · show output</summary>
+      <pre>post-automation/pyproject.toml:9: [project.scripts]
+post-automation/pyproject.toml:10: post = "posting.cli:main"</pre>
+    </details>
+
+    <div class="work">
+      <span class="tag">[Fix-CLI]</span>
+      <span class="text">flag order was reversed in cli.py; patch applied, suite green, no files outside the repo touched.</span>
+    </div>
+
+    <div class="palette"><span>/</span> zoom · date · usage · jobs · view · quit</div>
+  </main>
+
+  <footer class="status">
+    <span>session <b>8e2621d5</b></span>
+    <span>deepseek-v4.1-flash</span>
+    <span>cache <b>95.3%</b></span>
+    <span>jobs <b>1</b></span>
+    <span class="grow"></span>
+    <span>rolling 3% · weekly 12% · monthly 23%</span>
+    <span class="keys">enter send<kbd>^C</kbd></span>
+  </footer>
+
+</div>
+</body>
+</html>

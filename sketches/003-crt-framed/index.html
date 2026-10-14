@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>will.I.A. — variant 3: crt, framed</title>
+<style>
+  :root {
+    --bg: #060A14;
+    --panel: rgba(8, 16, 32, .66);
+    --rule: rgba(154, 230, 255, .18);
+    --rule-soft: rgba(154, 230, 255, .09);
+    --text: #E4EDFA;
+    --dim: #5E6E88;
+    --accent: #9AE6FF;
+    --reason: #4C5C76;
+    --amber: #FFC06A;
+    --red: #FF6B70;
+    --ok: #6FE3C0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--mono); font-size: 13px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* the screen it is pretending to be */
+  .crt::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 3;
+    background: repeating-linear-gradient(
+      rgba(154, 230, 255, .022) 0 1px, rgba(0,0,0,0) 1px 3px);
+  }
+  .crt::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 4;
+    background: radial-gradient(120% 90% at 50% 45%, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%);
+  }
+
+  .app { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+
+  /* ---------- top ---------- */
+  header {
+    display: flex; align-items: center; gap: 20px;
+    padding: 11px 18px; border-bottom: 1px solid var(--rule);
+    background: var(--panel);
+  }
+  .mark { color: var(--accent); letter-spacing: .16em; }
+  .mark span { color: var(--dim); }
+  .live { display: flex; align-items: center; gap: 7px; color: var(--dim); font-size: 11px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .chip {
+    color: var(--dim); font-size: 11px; border: 1px solid var(--rule-soft);
+    padding: 1px 7px; border-radius: 3px;
+  }
+  .chip b { color: var(--text); font-weight: 400; }
+  header .grow { flex: 1; }
+
+  .body { display: grid; grid-template-columns: 30ch 1fr; overflow: hidden; }
+
+  /* ---------- rail ---------- */
+  .rail {
+    border-right: 1px solid var(--rule); padding: 18px;
+    display: flex; flex-direction: column; gap: 20px;
+    background: var(--panel); overflow: hidden;
+  }
+  .k { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; }
+  .k em { color: rgba(154,230,255,.35); font-style: normal; letter-spacing: .1em; }
+  .wire { color: rgba(154,230,255,.42); font-size: 11px; white-space: pre; line-height: 1.5; }
+  .wire b { color: var(--accent); font-weight: 400; }
+  .meta { color: var(--dim); font-size: 11px; }
+  .meta b { color: var(--text); font-weight: 400; }
+  .ok { color: var(--ok); }
+
+  /* ---------- centre ---------- */
+  main { padding: 24px 28px; overflow-y: auto; }
+  .who { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; }
+  .you { color: #F4F8FF; margin: 3px 0 20px; }
+
+  .thought { border: 1px solid var(--rule-soft); border-radius: 3px; padding: 12px 14px; margin: 0 0 20px; }
+  .thought summary { list-style: none; cursor: pointer; color: var(--dim); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; }
+  .thought summary::-webkit-details-marker { display: none; }
+  .thought .t { color: var(--reason); font-size: 12.5px; margin-top: 8px; }
+  .thought .t p { margin: 5px 0; }
+
+  .ans { margin: 3px 0 20px; }
+  .ans strong { color: #F7FBFF; font-weight: 500; }
+  .ans .tag { color: var(--amber); }
+
+  .packets { display: flex; flex-direction: column; gap: 5px; margin: 0 0 18px; }
+  .pkt { display: grid; grid-template-columns: 3ch 11ch 1fr 5ch; gap: 10px; align-items: baseline; }
+  .pkt .a { color: var(--accent); }
+  .pkt .t { color: var(--accent); }
+  .pkt .c { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pkt .x { color: var(--ok); text-align: right; border: 1px solid var(--rule-soft); border-radius: 3px; font-size: 11px; }
+
+  .out { margin: 0 0 20px; padding-left: 3ch; }
+  .out summary { color: var(--dim); cursor: pointer; list-style: none; font-size: 11.5px; }
+  .out summary::-webkit-details-marker { display: none; }
+  .out summary:hover { color: var(--accent); }
+  .out pre { color: var(--dim); font-size: 11px; margin-top: 8px; padding: 10px; border: 1px solid var(--rule-soft); border-radius: 3px; white-space: pre-wrap; }
+
+  .work { display: flex; gap: 10px; margin: 0 0 20px; padding: 9px 12px; border: 1px solid var(--rule-soft); border-radius: 3px; }
+  .work .tag { color: var(--amber); }
+  .work .txt { color: var(--dim); }
+
+  .pal { color: var(--dim); font-size: 11px; }
+  .pal b { color: var(--accent); font-weight: 400; }
+
+  footer {
+    border-top: 1px solid var(--rule); background: var(--panel);
+    padding: 8px 18px; display: flex; gap: 18px; align-items: center;
+    color: var(--dim); font-size: 10.5px;
+  }
+  footer .grow { flex: 1; }
+  footer b { color: var(--text); font-weight: 400; }
+  kbd { color: var(--accent); border: 1px solid var(--rule); border-radius: 3px; padding: 0 4px; font-family: var(--mono); }
+</style>
+</head>
+<body class="crt">
+<div class="app">
+
+  <header>
+    <div class="mark">will.I.A. <span>／ wired</span></div>
+    <div class="live"><span class="dot"></span> settled</div>
+    <span class="chip">session <b>8e2621d5</b></span>
+    <span class="chip">view <b>76,809 B</b></span>
+    <span class="chip">nodes <b>321</b></span>
+    <span class="grow"></span>
+    <span class="chip">cache <b>95.3%</b></span>
+    <span class="chip">jobs <b>1</b></span>
+  </header>
+
+  <div class="body">
+    <aside class="rail">
+      <div>
+        <div class="k">memory <em>記憶</em></div>
+        <div class="wire">l0 ───────▮ <b>162</b>
+l1 ─────▮ 81
+l2 ────▮ 40
+l3 ───▮ 20
+l4 ──▮ 10
+l5 ─▮ 5
+l6 ▮ 2
+l7 <b>▮ 1 ← here</b></div>
+      </div>
+      <div>
+        <div class="k">window <em>窓</em></div>
+        <div class="meta">64K ────<b>●</b>───────────── 128K</div>
+        <div class="meta"><span class="ok">settled</span> · 0 unbuilt</div>
+      </div>
+      <div>
+        <div class="k">queue</div>
+        <div class="meta"><b>●</b> <b>●</b> · · · ·</div>
+      </div>
+      <div>
+        <div class="k">plan</div>
+        <div class="meta">rolling <b>3%</b> · weekly <b>12%</b><br>monthly <b>23%</b></div>
+      </div>
+      <div class="pal"><b>/</b> zoom · date · usage<br><b>/</b> jobs · view · quit</div>
+    </aside>
+
+    <main>
+      <div class="who">illan</div>
+      <div class="you">the posting CLI broke after the batch — check it and fix it.</div>
+
+      <details class="thought" open>
+        <summary>thought · click to fold</summary>
+        <div class="t">
+          <p>post-automation is at ~/Documents/coding/post-automation. The batch changed the shell tools, not that repo, so a break there is more likely a stale invocation than a regression.</p>
+          <p>Check state, then its own suite, before touching anything.</p>
+        </div>
+      </details>
+
+      <div class="who">willia</div>
+      <div class="ans">Both clean — nothing regressed here. <strong>The break is in how the job was launched.</strong> <span class="tag">[Fix-CLI]</span> is on it.</div>
+
+      <div class="packets">
+        <div class="pkt"><span class="a">→</span><span class="t">terminal</span><span class="c">git status --porcelain</span><span class="x">0</span></div>
+        <div class="pkt"><span class="a">→</span><span class="t">terminal</span><span class="c">uv run pytest -q</span><span class="x">0</span></div>
+        <div class="pkt"><span class="a">→</span><span class="t">search_files</span><span class="c">*.toml "entry_points"</span><span class="x">0</span></div>
+      </div>
+
+      <details class="out">
+        <summary>3 lines of output — show</summary>
+        <pre>pyproject.toml:9   [project.scripts]
+pyproject.toml:10  post = "posting.cli:main"</pre>
+      </details>
+
+      <div class="work">
+        <span class="tag">[Fix-CLI]</span>
+        <span class="txt">flag order was reversed in cli.py; patch applied, suite green, nothing outside the repo touched.</span>
+      </div>
+
+      <div class="pal"><b>enter</b> send · <b>^C</b> interrupt · <b>/</b> palette</div>
+    </main>
+  </div>
+
+  <footer>
+    <span>log <b>main/2026-10-14.jsonl</b></span>
+    <span>meter <b>logs/usage.jsonl</b></span>
+    <span class="grow"></span>
+    <span>deepseek-v4.1-flash</span>
+    <span>turn 8</span>
+  </footer>
+
+</div>
+</body>
+</html>

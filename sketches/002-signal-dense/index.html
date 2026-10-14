@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>will.I.A. — variant 2: signal, dense</title>
+<style>
+  :root {
+    --bg: #04060C;
+    --panel: #070B14;
+    --rule: rgba(143, 224, 255, .16);
+    --body: #D7E3F4;
+    --dim: #55647C;
+    --agent: #8FE0FF;
+    --reason: #46566F;
+    --amber: #FFB454;
+    --red: #FF5A5F;
+    --ok: #6FE3C0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--body);
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app {
+    height: 100vh; display: grid;
+    grid-template-columns: 17ch 1fr 25ch;
+    grid-template-rows: 1fr auto;
+  }
+  .k { color: var(--dim); font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase; }
+  .v { color: var(--agent); }
+
+  /* rail: the tree as one column */
+  .rail {
+    padding: 14px 12px; border-right: 1px solid var(--rule);
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .spark { display: flex; flex-direction: column; gap: 1px; }
+  .row { display: grid; grid-template-columns: 3ch 1fr 4ch; gap: 6px; font-size: 11px; }
+  .row .i { color: var(--dim); }
+  .row .b { color: var(--agent); opacity: .5; letter-spacing: -2px; }
+  .row.here .b { opacity: 1; }
+  .row .n { color: var(--dim); text-align: right; }
+  .mini { color: var(--dim); font-size: 11px; }
+  .mini .on { color: var(--ok); }
+
+  /* centre */
+  .stage { padding: 16px 20px; overflow-y: auto; }
+  .who { color: var(--dim); font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase; }
+  .you { color: #F2F7FF; margin: 2px 0 14px; }
+  .think { border-left: 1px solid var(--rule); padding-left: 11px; margin: 0 0 14px; }
+  .think summary { list-style: none; cursor: pointer; }
+  .think summary::-webkit-details-marker { display: none; }
+  .think .b { color: var(--reason); font-size: 12px; }
+  .think .b p { margin: 4px 0; }
+  .ans { margin: 2px 0 14px; }
+  .ans strong { color: #F4F9FF; font-weight: 500; }
+
+  table.pk { width: 100%; border-collapse: collapse; margin: 0 0 12px; }
+  table.pk td { padding: 3px 0; vertical-align: baseline; }
+  td.a { color: var(--agent); width: 3ch; }
+  td.t { color: var(--agent); width: 13ch; }
+  td.c { color: var(--dim); }
+  td.x { color: var(--ok); text-align: right; width: 4ch; }
+  td.ms { color: var(--dim); text-align: right; width: 7ch; }
+  .out { color: var(--dim); font-size: 11px; margin: 0 0 12px; padding-left: 16px; border-left: 1px solid var(--rule); }
+  .work { margin: 0 0 14px; }
+  .work .tag { color: var(--amber); }
+  .work .txt { color: var(--dim); }
+
+  /* telemetry */
+  .tele {
+    border-left: 1px solid var(--rule); padding: 14px 12px;
+    display: flex; flex-direction: column; gap: 13px;
+  }
+  .pair { display: flex; justify-content: space-between; font-size: 11px; }
+  .pair span:first-child { color: var(--dim); }
+  .bar { color: rgba(143,224,255,.35); font-size: 10px; letter-spacing: -1px; }
+  .bar .m { color: var(--agent); }
+  .pal { color: var(--dim); font-size: 11px; }
+  .pal .s { color: var(--agent); }
+
+  footer {
+    grid-column: 1 / -1; border-top: 1px solid var(--rule); background: var(--panel);
+    padding: 7px 12px; display: flex; gap: 18px; color: var(--dim); font-size: 10.5px;
+  }
+  footer b { color: var(--body); font-weight: 400; }
+  footer .grow { flex: 1; }
+  kbd { color: var(--agent); border: 1px solid var(--rule); padding: 0 3px; font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="rail">
+    <div>
+      <div class="k">tree</div>
+      <div class="spark">
+        <div class="row"><span class="i">l0</span><span class="b">██████████████</span><span class="n">162</span></div>
+        <div class="row"><span class="i">l1</span><span class="b">███████</span><span class="n">81</span></div>
+        <div class="row"><span class="i">l2</span><span class="b">███</span><span class="n">40</span></div>
+        <div class="row"><span class="i">l3</span><span class="b">██</span><span class="n">20</span></div>
+        <div class="row"><span class="i">l4</span><span class="b">█</span><span class="n">10</span></div>
+        <div class="row"><span class="i">l5</span><span class="b">▏</span><span class="n">5</span></div>
+        <div class="row"><span class="i">l6</span><span class="b">▏</span><span class="n">2</span></div>
+        <div class="row here"><span class="i">l7</span><span class="b">▏</span><span class="n">1</span></div>
+      </div>
+    </div>
+    <div><div class="k">nodes</div><div class="mini">321 total</div></div>
+    <div><div class="k">view</div><div class="mini">76,809 B</div><div class="bar">64K ──<span class="m">●</span>──────────── 128K</div></div>
+    <div><div class="k">state</div><div class="mini"><span class="on">settled</span> · 0 unbuilt</div></div>
+    <div><div class="k">queue</div><div class="bar"><span class="m">●</span> <span class="m">●</span> · ·</div></div>
+    <div class="pal"><span class="s">/</span> zoom date usage<br><span class="s">/</span> jobs view quit</div>
+  </aside>
+
+  <main class="stage">
+    <div class="who">illan</div>
+    <div class="you">the posting CLI broke after the batch — check it and fix it.</div>
+
+    <details class="think" open>
+      <summary class="who">reasoning</summary>
+      <div class="b">
+        <p>post-automation is at ~/Documents/coding/post-automation; the batch changed the shell tools, not that repo. Check state, then its own suite, before touching anything.</p>
+        <p>If both are clean the break is in the invocation, not the code.</p>
+      </div>
+    </details>
+
+    <div class="who">willia</div>
+    <div class="ans">Both clean, so nothing regressed here — <strong>the break is in how the job was launched.</strong> Delegated the flag-order fix <span style="color:var(--amber)">[Fix-CLI]</span>.</div>
+
+    <table class="pk">
+      <tr><td class="a">→</td><td class="t">terminal</td><td class="c">git -C ~/Documents/coding/post-automation status --porcelain</td><td class="x">0</td><td class="ms">12ms</td></tr>
+      <tr><td class="a">→</td><td class="t">terminal</td><td class="c">uv run pytest -q</td><td class="x">0</td><td class="ms">3.4s</td></tr>
+      <tr><td class="a">→</td><td class="t">search_files</td><td class="c">*.toml "entry_points"</td><td class="x">0</td><td class="ms">41ms</td></tr>
+    </table>
+
+    <div class="out">
+      <div>pyproject.toml:9 &#160;[project.scripts]</div>
+      <div>pyproject.toml:10 &#160;post = "posting.cli:main"</div>
+      <div style="margin-top:6px">[Fix-CLI] flag order was reversed in cli.py; patch applied, suite green, nothing touched outside the repo.</div>
+    </div>
+  </main>
+
+  <aside class="tele">
+    <div>
+      <div class="k">last call</div>
+      <div class="pair"><span>cache read</span><span class="v">95.3%</span></div>
+      <div class="bar">2,944 / 3,089 tok</div>
+    </div>
+    <div>
+      <div class="k">reasoning</div>
+      <div class="pair"><span>last turn</span><span class="v">23 tok</span></div>
+      <div class="pair"><span>compactions</span><span class="v">0 tok</span></div>
+    </div>
+    <div>
+      <div class="k">plan</div>
+      <div class="pair"><span>rolling</span><span class="v">3%</span></div>
+      <div class="pair"><span>weekly</span><span class="v">12%</span></div>
+      <div class="pair"><span>monthly</span><span class="v">23%</span></div>
+    </div>
+    <div>
+      <div class="k">jobs</div>
+      <div class="pair"><span>running</span><span style="color:var(--amber)">1</span></div>
+      <div class="pair"><span>orphaned</span><span>0</span></div>
+    </div>
+    <div>
+      <div class="k">session</div>
+      <div class="pair"><span>id</span><span class="v">8e2621d5</span></div>
+      <div class="pair"><span>model</span><span class="v">ds-v4.1-flash</span></div>
+    </div>
+  </aside>
+
+  <footer>
+    <span>logs <b>usage.jsonl</b></span>
+    <span>workers <b>1/8</b></span>
+    <span class="grow"></span>
+    <span>enter send <kbd>^C</kbd> interrupt <kbd>/</kbd> palette</span>
+  </footer>
+
+</div>
+</body>
+</html>
