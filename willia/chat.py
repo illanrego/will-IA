@@ -119,6 +119,17 @@ class Chat:
         with self._engine_lock:
             yield
 
+    def engine_free(self) -> bool:
+        """True when the engine lock is free right now.
+
+        A drain wave holds this lock across a whole compaction pass (seconds, with model calls),
+        so a display snapshot asks first and reuses its last frame instead of waiting.
+        """
+        if self._engine_lock.acquire(blocking=False):
+            self._engine_lock.release()
+            return True
+        return False
+
     def _log_message(self, message: dict, tool_name: str | None = None) -> list[str]:
         chunks = []
         classified = records.classify(message, self.config.node_bytes, tool_name)

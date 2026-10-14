@@ -1,4 +1,9 @@
-"""Pure transcript layout for the terminal UI."""
+"""Pure transcript layout for the terminal UI.
+
+Everything here is a function of its arguments: records in, styled lines out. This is the hot path
+(one call per changed frame, not one per keystroke), so wrapping builds style *runs* instead of one
+object per character, and per-character width is memoised.
+"""
 
 from __future__ import annotations
 
@@ -23,52 +28,94 @@ class Line:
     spans: tuple[Span, ...] = ()
 
 
-def cell_width(text: str) -> int:
-    width = 0
-    for char in text:
-        if char in "\r\n":
-            continue
-        if unicodedata.combining(char):
-            continue
-        width += 2 if unicodedata.east_asian_width(char) in {"W", "F"} else 1
+# Per-character width is asked for constantly and never changes.
+_WIDTHS: dict[str, int] = {}
+
+
+def char_width(char: str) -> int:
+    width = _WIDTHS.get(char)
+    if width is None:
+        if char in "\r\n" or unicodedata.combining(char):
+            width = 0
+        elif unicodedata.east_asian_width(char) in {"W", "F"}:
+            width = 2
+        else:
+            width = 1
+        _WIDTHS[char] = width
     return width
 
 
-def _wrap_spans(spans: Iterable[Span], width: int) -> list[Line]:
+def cell_width(text: str) -> int:
+    return sum(char_width(char) for char in text)
+
+
+def fit(text: str, width: int, *, ellipsis: str = "", pad: bool = True) -> str:
+    """Truncate to ``width`` cells in one linear pass, optionally padding with spaces."""
+    if width <= 0:
+        return ""
+    limit = width - cell_width(ellipsis) if ellipsis else width
+    limit = max(0, limit)
+    used = 0
+    end = 0
+    for index, char in enumerate(text):
+        size = char_width(char)
+        if used + size > limit:
+            break
+        used += size
+        end = index + 1
+    result = text[:end] + (ellipsis if end < len(text) else "")
+    if not pad:
+        return result
+    return result + " " * max(0, width - cell_width(result))
+
+
+def _wrap_runs(spans: Iterable[Span], width: int) -> list[Line]:
+    """Wrap styled runs to ``width`` cells, merging same-style neighbours per row."""
     width = max(1, width)
-    rows: list[list[Span]] = [[]]
+    rows: list[list[list[str]]] = [[]]           # rows -> runs -> [style, chars]
     cells = 0
 
-    def append(char: str, style: str) -> None:
-        nonlocal cells
-        if rows[-1] and rows[-1][-1].style == style:
-            previous = rows[-1][-1]
-            rows[-1][-1] = Span(previous.text + char, style)
-        else:
-            rows[-1].append(Span(char, style))
-        cells += cell_width(char)
+    def add(text: str, style: str) -> None:
+        if text:
+            rows[-1].append([style, text])
 
     for span in spans:
+        chunk = ""
         for char in span.text.replace("\r\n", "\n").replace("\r", "\n"):
             if char == "\n":
+                add(chunk, span.style)
+                chunk = ""
                 rows.append([])
                 cells = 0
                 continue
-            char_width = cell_width(char)
-            if cells and cells + char_width > width:
+            size = char_width(char)
+            if cells and cells + size > width:
+                add(chunk, span.style)
+                chunk = ""
                 rows.append([])
                 cells = 0
-            append(char, span.style)
-    result = []
+            chunk += char
+            cells += size
+        add(chunk, span.style)
+
+    lines: list[Line] = []
     for row in rows:
-        text = "".join(span.text for span in row)
-        style = row[0].style if row else "body"
-        result.append(Line(text, style, tuple(row)))
-    return result
+        merged: list[Span] = []
+        for style, text in row:
+            if merged and merged[-1].style == style:
+                merged[-1] = Span(merged[-1].text + text, style)
+            else:
+                merged.append(Span(text, style))
+        lines.append(Line(
+            "".join(span.text for span in merged),
+            merged[0].style if merged else "body",
+            tuple(merged),
+        ))
+    return lines
 
 
 def wrap(text: str, width: int, style: str) -> list[Line]:
-    return _wrap_spans((Span(text, style),), width)
+    return _wrap_runs((Span(text, style),), width)
 
 
 def _field(item: Any, name: str, default: Any = None) -> Any:
@@ -86,39 +133,48 @@ def _arguments(value: Any) -> str:
 def _tool_line(name: str, arguments: Any, width: int,
                elapsed_ms: float | None = None) -> list[Line]:
     suffix = "" if elapsed_ms is None else f"  {elapsed_ms:.0f}ms"
-    return _wrap_spans((
+    return _wrap_runs((
         Span("→ ", "agent"), Span(name, "agent"),
         Span(" " + _arguments(arguments) + suffix, "dim"),
     ), width)
 
 
+ECHO_LINES = 2
+
+
 def _echo(text: str, width: int) -> list[Line]:
     logical = text.splitlines() or [""]
-    lines = []
-    for value in logical[:3]:
+    lines: list[Line] = []
+    for value in logical[:ECHO_LINES]:
         lines.extend(wrap(value, width, "dim"))
-    if len(logical) > 3:
-        lines.extend(wrap(f"… {len(logical) - 3} more", width, "dim"))
+    if len(logical) > ECHO_LINES:
+        lines.extend(wrap(f"… {len(logical) - ECHO_LINES} more", width, "dim"))
     return lines
 
 
-def _record_lines(record: Any, width: int) -> list[Line]:
+def record_lines(record: Any, width: int, *, show_notes: bool = False,
+                 collapsed: bool = False) -> list[Line]:
+    """One record's lines. ``show_notes`` includes imported memory; ``collapsed`` keeps one line."""
     kind = _field(record, "kind", "")
     text = _field(record, "text", "")
+    if kind == "note":
+        if not show_notes:
+            return []
+        head = text.strip().splitlines()[0] if text.strip() else ""
+        return [Line(fit(f"note · {head}", width, ellipsis="…", pad=False), "dim")]
+    if collapsed and kind in {"will", "user", "echo"}:
+        head = text.strip().splitlines()[0] if text.strip() else ""
+        return [Line(fit(head, width, ellipsis="…", pad=False), "dim")]
     if kind == "user":
         return wrap(text, width, "you")
     if kind == "will":
         return wrap(text, width, "body")
-    if kind == "note":
-        return wrap(text, width, "dim")
     if kind == "echo":
         return _echo(text, width)
     if kind == "work":
         if text.startswith("[") and "]" in text:
             end = text.index("]") + 1
-            return _wrap_spans((
-                Span(text[:end], "amber"), Span(text[end:], "dim"),
-            ), width)
+            return _wrap_runs((Span(text[:end], "amber"), Span(text[end:], "dim")), width)
         return wrap(text, width, "dim")
     if kind == "tool":
         try:
@@ -131,6 +187,10 @@ def _record_lines(record: Any, width: int) -> list[Line]:
     return wrap(text, width, "body")
 
 
+# A blank line separates conversation blocks; tool traffic stays tight under its call.
+_SPACED = {"user", "will", "work"}
+
+
 def _flight_lines(events: Iterable[Any], width: int) -> list[Line]:
     lines: list[Line] = []
     pending_kind = None
@@ -140,7 +200,7 @@ def _flight_lines(events: Iterable[Any], width: int) -> list[Line]:
         nonlocal pending_kind, pending_text
         if pending_text:
             if pending_kind == "reasoning":
-                lines.extend(_wrap_spans((
+                lines.extend(_wrap_runs((
                     Span("│ ", "rule_strong"), Span(pending_text, "reason"),
                 ), width))
             else:
@@ -183,14 +243,25 @@ def viewport(lines: list[Line], height: int, offset: int = 0) -> list[Line]:
     return lines[max(0, end - height):end]
 
 
-def render(records, in_flight, width, height, theme) -> list[Line]:
+def render(records, in_flight, width, height, theme, *,
+           show_notes: bool = False) -> list[Line]:
     """Render durable records plus ephemeral stream events, without any I/O."""
     colours = palette(theme)
+    width = max(1, width)
     lines: list[Line] = []
+    previous_kind = None
     for record in records:
-        if record is not None:
-            lines.extend(_record_lines(record, max(1, width)))
-    lines.extend(_flight_lines(in_flight or (), max(1, width)))
+        if record is None:
+            continue
+        kind = _field(record, "kind", "")
+        produced = record_lines(record, width, show_notes=show_notes)
+        if not produced:
+            continue
+        if kind != previous_kind and previous_kind in _SPACED and kind in _SPACED:
+            lines.append(Line("", "body"))
+        lines.extend(produced)
+        previous_kind = kind
+    lines.extend(_flight_lines(in_flight or (), width))
     if any(line.style not in colours for line in lines):
         raise ValueError("Renderer produced an unknown style token")
     return lines if height is None or height < 0 else viewport(lines, height)

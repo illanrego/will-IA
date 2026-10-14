@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from willia.store import Record
@@ -57,6 +59,7 @@ def test_insert_mode_editing_send_and_escape():
     press(app, "ENTER", "CTRL_U", "o", "n", "e", " ", "t", "w", "o", "CTRL_W")
     assert app.buffer == "one "
     app.handle_key("ENTER")
+    app.join_turn()
     assert chat.sent == ["one "]
     assert app.mode == Mode.NORMAL
 
@@ -66,6 +69,7 @@ def test_ctrl_u_and_history_up_down():
     app = App(chat, FakeScreen())
     press(app, "i", "f", "i", "r", "s", "t", "ENTER")
     press(app, "i", "s", "e", "c", "o", "n", "d", "ENTER")
+    app.join_turn()
     app.handle_key("i")
     app.buffer = "draft"
     app.handle_key("UP")
@@ -124,6 +128,50 @@ def test_a_burst_of_stream_deltas_is_coalesced_into_few_draws():
     assert burst < 10, f"500 deltas painted {burst} times"
     app("end", usage={})
     assert len(draws) == burst + 1, "the end of a turn must always paint"
+
+
+class SlowChat(FakeChat):
+    def turn(self, texts, *, sink=None):
+        self.sent.extend(texts)
+        time.sleep(0.3)
+        sink("delta", kind="content", text="done")
+        sink("end", usage={})
+
+
+def test_a_turn_runs_off_the_ui_thread():
+    """Sending must not freeze the UI: the turn runs on a worker and reports through the queue."""
+    app = App(SlowChat(), FakeScreen())
+    app.handle_key("i")
+    app.buffer = "hello"
+    started = time.monotonic()
+    app.handle_key("ENTER")
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.2, f"sending blocked the UI for {elapsed:.2f}s"
+    assert app.busy is True
+    app.join_turn()
+    app._drain_events()
+    assert app.busy is False
+
+
+def test_the_transcript_is_cached_until_the_log_changes():
+    """A frame must slice a cached render, not re-wrap the log (that was 185 ms per keypress)."""
+    app = App(FakeChat(), FakeScreen())
+    first = app._transcript(20)
+    assert app._transcript(20) is first
+    assert app.handle_key("j") in {True, False}
+    assert app._transcript(20) is first
+    app.chat.log.records.append(Record(20, "will", "new", 3, "2026-10-14T00:00:00Z"))
+    assert app._transcript(20) is not first
+
+
+def test_notes_are_hidden_by_default_and_visible_with_the_command():
+    app = App(FakeChat(), FakeScreen())
+    app.chat.log.records = [Record(0, "note", "memory", 6, "2026-10-14T00:00:00Z")]
+    app._refresh_records()
+    assert app._transcript(20) == []
+    press(app, ":", "n", "o", "t", "e", "s", "ENTER")
+    assert app.show_notes is True
+    assert [line.text for line in app._transcript(20)] == ["note · memory"]
 
 
 def test_cli_refuses_tui_when_stdout_is_not_a_terminal(monkeypatch, capsys):

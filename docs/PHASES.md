@@ -214,6 +214,9 @@ model's reasoning and its answer as one indistinguishable stream.
   of the phase.
 - `j k Ctrl-d Ctrl-u gg G` scroll the transcript continuously, in-app: no mode switch, no viewport
   snap (his complaint about tmux copy-mode).
+- Measured after the fix, on the live chat's shape (193 records): a frame 214 ms -> 0.99 ms, a
+  scroll keystroke 211 ms -> 0.002 ms, one typed character plus repaint 0.30 ms, and the rail
+  6,507 ms -> 0.01 ms while the compaction drain runs.
 - The renderer is a pure function of `(records, in-flight, width, theme)` and is tested with no tty;
   the key state machine is tested with no tty; the terminal layer's emitted sequences are asserted
   against a fake writer.

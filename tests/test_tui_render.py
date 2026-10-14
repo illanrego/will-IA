@@ -19,11 +19,28 @@ def record(kind, text, i=0):
 @pytest.mark.parametrize(("kind", "text", "style"), [
     ("user", "question", "you"),
     ("will", "answer", "body"),
-    ("note", "reference", "dim"),
 ])
 def test_plain_record_kinds(kind, text, style):
     lines = render([record(kind, text)], [], 40, 20, "blue")
     assert [(line.text, line.style) for line in lines] == [(text, style)]
+
+
+def test_conversation_blocks_are_separated_but_a_split_message_is_not():
+    """A blank line marks a change of speaker; a long paste split into records stays whole."""
+    split = [record("user", f"part-{i}", i) for i in range(3)]
+    assert [line.text for line in render(split, [], 40, -1, "blue")] == [
+        "part-0", "part-1", "part-2"]
+    mixed = [record("user", "hello", 0), record("will", "hi", 1)]
+    assert [line.text for line in render(mixed, [], 40, -1, "blue")] == ["hello", "", "hi"]
+
+
+def test_imported_memory_is_hidden_unless_asked_for():
+    """134 note records must not bury the conversation; :notes reveals them, one line each."""
+    assert render([record("note", "reference")], [], 40, 20, "blue") == []
+    shown = render([record("note", "reference")], [], 40, 20, "blue", show_notes=True)
+    assert len(shown) == 1
+    assert shown[0].text.startswith("note · reference")
+    assert shown[0].style == "dim"
 
 
 def test_work_tool_and_echo_records_have_the_approved_shapes():
@@ -37,8 +54,8 @@ def test_work_tool_and_echo_records_have_the_approved_shapes():
     assert [span.style for span in lines[0].spans] == ["amber", "dim"]
     assert lines[1].text.startswith("→ terminal ")
     assert {span.style for span in lines[1].spans} == {"agent", "dim"}
-    assert [line.text for line in lines[-4:]] == ["one", "two", "three", "… 2 more"]
-    assert all(line.style == "dim" for line in lines[-4:])
+    assert [line.text for line in lines[-3:]] == ["one", "two", "… 3 more"]
+    assert all(line.style == "dim" for line in lines[-3:])
 
 
 def test_wrap_uses_terminal_cells_for_double_width_characters():
@@ -71,6 +88,18 @@ def test_all_palettes_define_exactly_the_same_fourteen_tokens():
     assert len(expected) == 14
     assert set(PALETTES) == {"blue", "green", "mixed"}
     assert all(set(values) == expected for values in PALETTES.values())
+
+
+def test_the_rail_snapshot_never_waits_for_the_engine():
+    """A drain wave holds the engine lock for a whole pass; the rail must not queue behind it."""
+    class BusyChat:
+        def engine_free(self):
+            return False
+
+        def _engine(self):
+            raise AssertionError("a non-blocking snapshot must not take the engine lock")
+
+    assert build_rail_facts(BusyChat(), {}, blocking=False) is None
 
 
 def test_rail_facts_are_tuples_built_from_live_sources(tmp_path):

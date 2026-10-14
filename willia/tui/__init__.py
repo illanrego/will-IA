@@ -33,10 +33,18 @@ def _countdown(value, now: datetime) -> str:
     return f"{minutes}m"
 
 
-def build_rail_facts(chat, windows=None, *, now=None):
-    """Build the layout-neutral ``(label, value, style)`` rail facts."""
+def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
+    """Build the layout-neutral ``(label, value, style)`` rail facts.
+
+    With ``blocking=False`` this returns ``None`` instead of waiting while the engine is busy, so
+    a frame keeps the numbers it already has rather than stalling.
+    """
     now = now or datetime.now(timezone.utc)
     windows = windows or {}
+    if not blocking:
+        free = getattr(chat, "engine_free", None)
+        if callable(free) and not free():
+            return None
     with chat._engine():
         levels = Counter(level for level, _index in chat.tree.nodes())
         view_bytes = len(chat.view.render().encode("utf-8"))
@@ -99,8 +107,8 @@ def run(chat) -> None:
         windows = usage.subscription_windows(chat.config)
     except Exception:
         windows = {}
-    source = lambda: build_rail_facts(chat, windows)
-    App(chat, Screen(), rail_facts=source(), rail_source=source).run()
+    source = lambda blocking=True: build_rail_facts(chat, windows, blocking=blocking)
+    App(chat, Screen(), rail_facts=source(blocking=True), rail_source=source).run()
 
 
 __all__ = ["build_rail_facts", "run"]

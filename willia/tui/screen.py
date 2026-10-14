@@ -166,6 +166,13 @@ class Screen:
                 data += os.read(self.input_fd, length - len(data))
         return decode_key(data)
 
+    def poll_key(self, timeout: float | None = None) -> str | None:
+        """Return a key if one is ready within ``timeout``, else None, so the loop can tick."""
+        ready, _w, _x = select.select([self.input_fd], [], [], timeout)
+        if not ready:
+            return None
+        return self.read_key()
+
     def draw(self, lines, theme="blue") -> None:
         output = [CLEAR, sgr(theme, "bg", self.depth, background=True)]
         for index, line in enumerate(lines):

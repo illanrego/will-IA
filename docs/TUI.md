@@ -55,6 +55,19 @@ terminal, and this is better, because a focused thing can be yanked and searched
 - **The stream is coalesced.** A delta arrives per token, so the frame is painted at most every
   ~33 ms, and once more when the turn ends. A paint per token flickers: measured at 61 full repaints
   for one short reply before the fix.
+- **The transcript is rendered once per change, not once per frame.** A frame slices a cached wrap of
+  the last 300 records. Re-wrapping the whole log twice per keystroke cost 185 ms and ~400 ms per
+  character end to end; it is 0.3 ms now. Wrapping builds style runs, and per-character width is
+  memoised.
+- **The rail reads a non-blocking snapshot.** A compaction wave holds the engine lock across a whole
+  pass, so a frame that waited on it measured 6.5 seconds; it now keeps the numbers it has and the
+  status line says `compacting` instead of stalling.
+- **The turn runs on a worker thread** and reports through a queue, so the UI keeps reading keys and
+  repainting while the model streams and while the post-turn pass runs. `:q` during a pass no longer
+  looks dead.
+- **The transcript shows the conversation, not the memory.** Imported `note` records are hidden unless
+  `:notes` is toggled - the live chat holds 134 of them and they buried everything - and tool output
+  folds to two lines.
 - **Resize** on `SIGWINCH`: re-measure and redraw. A draw is a full repaint; at this size that is
   cheap and it removes a whole class of partial-update bugs.
 - **Width**, not length: `wcwidth`-style handling via `unicodedata.east_asian_width` (stdlib), because

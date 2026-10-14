@@ -93,6 +93,23 @@ def main() -> int:
         os.write(fd, b"\r")
         print(f"--- sent the prompt; waiting for the reply to stream")
 
+        # The UI must keep reading keys while the model streams: type into the box mid-turn.
+        drain(fd, 0.4, out)
+        os.write(fd, b"i")
+        drain(fd, 0.2, out)
+        os.write(fd, b"zz")
+        drain(fd, 0.6, out)
+        responsive = b"zz" in out
+        busy_shown = b"streaming" in out
+        print(f"--- keys during the turn reached the screen: {responsive} "
+              f"| busy indicator shown: {busy_shown}")
+        if not responsive:
+            failures.append("the UI did not respond to keys while the model was streaming")
+        os.write(fd, b"\x15")        # ctrl-u: clear the box
+        drain(fd, 0.2, out)
+        os.write(fd, b"\x1b")        # esc: back to normal
+        drain(fd, 0.3, out)
+
         waited = 0.0
         while MARKER.encode() not in out and waited < 90:
             if drain(fd, 1.0, out):
