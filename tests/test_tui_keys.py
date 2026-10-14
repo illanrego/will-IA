@@ -1,12 +1,20 @@
 import time
+from contextlib import nullcontext
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from willia.store import Record
+from willia.tree import Line as TreeLine
 from willia import cli
 from willia.config import Config
+from willia.tui import build_rail_facts
 from willia.tui.app import App, Mode, Pane
+from willia.tui.render import cell_width
 from willia.tui.screen import Screen
+
+RAIL_LABEL_CELLS = 9
 
 
 class FakeLog:
@@ -314,26 +322,42 @@ def test_notes_are_hidden_by_default_and_visible_with_the_command():
     assert [line.text for line in app._transcript(20)] == ["note · memory"]
 
 
-def test_every_rail_row_explains_itself():
+def test_every_rail_row_explains_itself(tmp_path):
     """A mute row is a dead end: every label the rail actually produces needs a hint."""
-    facts = [
-        ("#memory", "", "dim"), ("l0", "6", "data"), ("nodes", "6", "data"),
-        ("#view", "", "dim"), ("bytes", "120 B", "data"), ("64K-128K", "────●───", "data"),
-        ("state", "settled · 0 unbuilt", "ok"),
-        ("queue", "0", "data"), ("newest", "5", "body"), ("#facts", "", "dim"),
-        ("session", "abc12345", "body"), ("cache", "95.3%", "data"), ("jobs", "1", "body"),
-        ("go", "3 / 14 / 24%", "data"), ("resets", "3h44m / 4d17h", "body"), ("model", "m", "body"),
-    ]
+    node = TreeLine(0, 0, "user: hello", 11)
+    tree = SimpleNamespace(nodes=lambda: {(0, 0): node}, get=lambda *key: node)
+    view = SimpleNamespace(render=lambda: "<chat>\n0+1|user: hello\n</chat>",
+                           settled=lambda: True, lines=lambda: [node])
+    chat = SimpleNamespace(
+        _engine=nullcontext, tree=tree, view=view,
+        compactor=SimpleNamespace(_pending=[]),
+        config=SimpleNamespace(view_min_bytes=64_000, view_max_bytes=128_000,
+                               model=SimpleNamespace(model="deepseek-v4.1-flash")),
+        root=tmp_path, session="1234567890", log=SimpleNamespace(count=lambda: 1),
+    )
+    # Built by the real builder: a row added or renamed there cannot ship without a hint, or with
+    # a label the rail's column would truncate.
+    facts = build_rail_facts(
+        chat,
+        {"rolling": {"percent": 3, "resetsAt": "2026-10-14T04:00:00Z"}},
+        {"primary": {"label": "5h", "percent": 12, "resets_in_s": 900},
+         "secondary": {"label": "7d", "percent": 18, "resets_in_s": 900}},
+        now=datetime(2026, 10, 14, tzinfo=timezone.utc),
+    )
     app = App(FakeChat(), FakeScreen(), rail_facts=facts)
     app.handle_key("TAB")
     assert app.focus.value == "rail"
-    mute = []
+    mute, wide = [], []
     for _ in range(len(facts) + 2):
-        hint = app._focused_hint()
-        if not hint:
-            mute.append(app._selected_rail_identity())
+        identity = app._selected_rail_identity()
+        label = identity[0] if identity else ""
+        if not app._focused_hint():
+            mute.append(label)
+        if label and not label.startswith("#") and cell_width(label) > RAIL_LABEL_CELLS:
+            wide.append(label)
         app.handle_key("j")
     assert not mute, f"rail rows with no explanation: {mute}"
+    assert not wide, f"rail labels wider than the {RAIL_LABEL_CELLS}-cell column: {wide}"
 
 
 def test_ctrl_b_collapses_the_rail_and_gives_the_width_back():

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import willia.tui as tui
 from willia.store import Record
 from willia.tree import Line as TreeLine
 from willia.tui import build_rail_facts
@@ -131,15 +132,67 @@ def test_rail_facts_are_tuples_built_from_live_sources(tmp_path):
         root=tmp_path, session="1234567890",
         log=SimpleNamespace(count=lambda: 1),
     )
-    facts = build_rail_facts(chat, {
-        "rolling": {"percent": 3, "resetsAt": "2026-10-14T04:00:00Z"},
-    }, now=datetime(2026, 10, 14, tzinfo=timezone.utc))
+    facts = build_rail_facts(
+        chat,
+        {"rolling": {"percent": 3, "resetsAt": "2026-10-14T04:00:00Z"}},
+        {
+            "primary": {"label": "5h", "percent": 12, "resets_in_s": 14_900},
+            "secondary": {"label": "7d", "percent": 18, "resets_in_s": 551_849},
+        },
+        now=datetime(2026, 10, 14, tzinfo=timezone.utc),
+    )
     assert all(isinstance(fact, tuple) and len(fact) == 3 for fact in facts)
     mapped = {label: value for label, value, _style in facts}
     assert mapped["l0"] == "1"
     assert mapped["nodes"] == "1"
     assert mapped["session"] == "12345678"
     assert mapped["go"] == "3%"
-    assert mapped["resets"] == "4h0m"
+    assert mapped["go ↺"] == "4h0m"
+    assert mapped["codex"] == "12% / 18%"
+    assert mapped["codex ↺"] == "4h8m / 6d9h"
     assert mapped["here"] == "0"
-    assert "codex" not in mapped
+    labels = [label for label, _value, _style in facts]
+    assert labels[labels.index("go"):labels.index("codex ↺") + 1] == [
+        "go", "go ↺", "codex", "codex ↺",
+    ]
+
+
+def test_tui_starts_both_usage_fetches_only_on_daemon_threads(monkeypatch):
+    threads = []
+
+    class FakeThread:
+        def __init__(self, *, target, name, daemon):
+            self.target = target
+            self.name = name
+            self.daemon = daemon
+            threads.append(self)
+
+        def start(self):
+            return None
+
+    class FakeApp:
+        def __init__(self, chat, screen, *, rail_source, theme):
+            self.rail_source = rail_source
+
+        def run(self):
+            return None
+
+    monkeypatch.setattr(tui.threading, "Thread", FakeThread)
+    monkeypatch.setattr(tui, "Screen", lambda: object())
+    monkeypatch.setattr(tui, "App", FakeApp)
+    monkeypatch.setattr(
+        tui.usage, "subscription_windows",
+        lambda _config: pytest.fail("Go network fetch ran on the startup path"),
+    )
+    monkeypatch.setattr(
+        tui.usage, "codex_windows",
+        lambda: pytest.fail("Codex network fetch ran on the startup path"),
+    )
+    chat = SimpleNamespace(config=SimpleNamespace(tui=SimpleNamespace(theme="blue")))
+
+    tui.run(chat)
+
+    assert [thread.name for thread in threads] == [
+        "willia-tui-go-usage", "willia-tui-codex-usage",
+    ]
+    assert all(thread.daemon for thread in threads)

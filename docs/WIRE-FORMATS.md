@@ -291,3 +291,23 @@ It lands in `<root>/logs/usage.jsonl`, one compact JSON object per call, appende
 **not** recorded at all: an absent object is not a zero-token call. `willia --usage` prints the
 totals beside the account's windows; `scripts/session-report.py` prints the same totals next to the
 chat's other state. Both commands are read-only - neither creates a file.
+
+### 9.1 The second account: the Codex plan
+
+The Codex plan has no usage endpoint of willia's own, so this one is read from the CLI's own
+credentials, **read-only**: `~/.codex/auth.json` -> `tokens.access_token` + `tokens.account_id`,
+and `GET https://chatgpt.com/backend-api/wham/usage` with `Authorization: Bearer`, a
+`chatgpt-account-id` header, `Accept: application/json` and a real `User-Agent`. The URL mirrors
+the Codex CLI's own PathStyle split: from a `.../codex` base, strip that suffix, then append
+`/wham` when the base contains `/backend-api` and `/api/codex` otherwise, then `/usage`.
+
+**willia never refreshes that token and never writes that file.** An expired token is a named
+failure (`HTTP 401`), reported as unavailable rather than retried. Measured live 2026-10-14, the
+payload carries `plan_type`, `rate_limit.primary_window` / `secondary_window` (each with
+`used_percent`, `limit_window_seconds`, `reset_after_seconds`) and
+`rate_limit_reset_credits.available_count` - the banked resets. It also reports `model_usage`,
+which is how the rail can say whether the expensive model is available to delegate to. The
+response also carries `user_id`, `account_id` and `email`: **none of those may ever be printed,
+logged or drawn.**
+
+`willia --usage` and the rail show both accounts; a failure on one leaves the other intact.

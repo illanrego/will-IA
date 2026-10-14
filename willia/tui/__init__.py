@@ -12,27 +12,19 @@ from .app import App
 from .screen import Screen
 
 
-def _countdown(value, now: datetime) -> str:
+def _seconds_until(value, now: datetime) -> float | None:
     if isinstance(value, (int, float)):
         target = datetime.fromtimestamp(value, timezone.utc)
     elif isinstance(value, str):
         try:
             target = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
-            return "?"
+            return None
     else:
-        return "?"
+        return None
     if target.tzinfo is None:
         target = target.replace(tzinfo=timezone.utc)
-    seconds = max(0, int((target - now).total_seconds()))
-    days, seconds = divmod(seconds, 86_400)
-    hours, seconds = divmod(seconds, 3_600)
-    minutes = seconds // 60
-    if days:
-        return f"{days}d{hours}h"
-    if hours:
-        return f"{hours}h{minutes}m"
-    return f"{minutes}m"
+    return (target - now).total_seconds()
 
 
 def _wait_free(chat, seconds: float) -> bool:
@@ -48,7 +40,7 @@ def _wait_free(chat, seconds: float) -> bool:
     return True
 
 
-def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
+def build_rail_facts(chat, windows=None, codex_windows=None, *, now=None, blocking=True):
     """Build the layout-neutral ``(label, value, style)`` rail facts.
 
     With ``blocking=False`` this returns ``None`` instead of waiting while the engine is busy, so
@@ -56,6 +48,7 @@ def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
     """
     now = now or datetime.now(timezone.utc)
     windows = windows or {}
+    codex_windows = codex_windows or {}
     if not _wait_free(chat, 0.4 if blocking else 0.0):
         return None
     engine = getattr(chat, "engine_try", None)
@@ -92,9 +85,22 @@ def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
         if isinstance(window, dict):
             percent = window.get("percent")
             percents.append(f"{percent:g}%" if isinstance(percent, (int, float)) else "?")
-            resets.append(_countdown(window.get("resetsAt"), now))
+            resets.append(usage.countdown(_seconds_until(window.get("resetsAt"), now)))
     go = " / ".join(percents) if percents else "unavailable"
-    reset = " / ".join(resets) if resets else "unavailable"
+    go_reset = " / ".join(resets) if resets else "unavailable"
+
+    codex_percents = []
+    codex_resets = []
+    for name in ("primary", "secondary"):
+        window = codex_windows.get(name)
+        if isinstance(window, dict):
+            percent = window.get("percent")
+            codex_percents.append(
+                f"{percent:g}%" if isinstance(percent, (int, float)) else "?"
+            )
+            codex_resets.append(usage.countdown(window.get("resets_in_s")))
+    codex = " / ".join(codex_percents) if codex_percents else "unavailable"
+    codex_reset = " / ".join(codex_resets) if codex_resets else "unavailable"
 
     sources = {
         "#memory": ("", "dim"),
@@ -112,7 +118,9 @@ def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
         "cache": (cache, "data"),
         "jobs": (str(len(jobs.running(chat))), "body"),
         "go": (go, "data"),
-        "resets": (reset, "body"),
+        "go ↺": (go_reset, "body"),
+        "codex": (codex, "data"),
+        "codex ↺": (codex_reset, "body"),
         "model": (chat.config.model.model, "body"),
     }
     facts = [(label, value, style) for label, (value, style) in sources.items()]
@@ -123,6 +131,7 @@ def run(chat) -> None:
     """Start the TUI. Nothing here may wait: a network fetch or a drain wave on the startup path
     leaves the terminal blank for as long as it takes, which is exactly how it failed once."""
     windows: dict = {}
+    codex_windows: dict = {}
 
     def fetch_windows() -> None:
         try:
@@ -130,8 +139,19 @@ def run(chat) -> None:
         except Exception:
             pass
 
-    threading.Thread(target=fetch_windows, name="willia-tui-usage", daemon=True).start()
-    source = lambda blocking=False: build_rail_facts(chat, windows, blocking=blocking)
+    def fetch_codex_windows() -> None:
+        try:
+            codex_windows.update(usage.codex_windows())
+        except Exception:
+            pass
+
+    threading.Thread(target=fetch_windows, name="willia-tui-go-usage", daemon=True).start()
+    threading.Thread(
+        target=fetch_codex_windows, name="willia-tui-codex-usage", daemon=True,
+    ).start()
+    source = lambda blocking=False: build_rail_facts(
+        chat, windows, codex_windows, blocking=blocking,
+    )
     App(chat, Screen(), rail_source=source, theme=chat.config.tui.theme).run()
 
 

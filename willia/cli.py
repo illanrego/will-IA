@@ -136,17 +136,48 @@ def _print_usage(config: Config) -> None:
               f"reasoning={bucket['reasoning_tokens']}")
     if entries:
         print(f"Latest call: {entries[-1].get('at')} ({entries[-1].get('kind')})")
+    print("go:")
     try:
         windows = usage.subscription_windows(config)
     except (OSError, ValueError, MissingCredential) as exc:
         print(f"Windows: unavailable ({exc})")
-        return
-    reported = [name for name in usage.WINDOWS if isinstance(windows.get(name), dict)]
-    if not reported:
-        print("Windows: none reported for this plan")
-    for name in reported:
-        window = windows[name]
-        print(f"{name}: {window.get('percent')}% resets {window.get('resetsAt')}")
+    except Exception:
+        print("Windows: unavailable (unexpected OpenCode Go usage failure)")
+    else:
+        reported = [name for name in usage.WINDOWS if isinstance(windows.get(name), dict)]
+        if not reported:
+            print("Windows: none reported for this plan")
+        now = datetime.now(timezone.utc)
+        for name in reported:
+            window = windows[name]
+            reset_at = window.get("resetsAt")
+            try:
+                target = datetime.fromisoformat(str(reset_at).replace("Z", "+00:00"))
+                if target.tzinfo is None:
+                    target = target.replace(tzinfo=timezone.utc)
+                reset = usage.countdown((target - now).total_seconds())
+            except ValueError:
+                reset = "?"
+            print(f"{name}: {window.get('percent')}% resets {reset_at} ({reset})")
+
+    try:
+        codex = usage.codex_windows()
+    except usage.CodexUsageError as exc:
+        print(f"codex: unavailable ({exc})")
+    except Exception:
+        print("codex: unavailable (unexpected Codex usage failure)")
+    else:
+        print(f"codex: plan={codex.get('plan') or 'unknown'}")
+        for name in ("primary", "secondary"):
+            window = codex.get(name)
+            if not isinstance(window, dict):
+                continue
+            label = window.get("label") or name
+            percent = window.get("percent")
+            percent_text = f"{percent:g}%" if isinstance(percent, (int, float)) else "?"
+            print(f"{label}: {percent_text} resets {usage.countdown(window.get('resets_in_s'))}")
+        if codex.get("reset_credits") is not None:
+            print(f"reset credits: {codex['reset_credits']}")
 
 
 def _note_files(raw_paths: list[str], *, recursive: bool) -> list[Path]:

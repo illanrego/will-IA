@@ -150,6 +150,10 @@ and the vision route is the Go route with the chat's own model, not OpenRouter.
 
 ## P3 — bootstrap and the first rides
 
+**Status (2026-10-14): both accounts now.** The meter and the rail read the Codex plan as well as
+OpenCode Go - percentages, reset countdowns and banked reset credits - from the CLI's own
+credential, read-only (`WIRE-FORMATS` section 9.1).
+
 **Status (2026-10-13): the bootstrap and the tooling are in; the rides are his.** 134 `note`
 records were imported from the curated markdowns. The usage meter landed (`willia --usage`,
 `<root>/logs/usage.jsonl`, `WIRE-FORMATS` §9) with a read-only `scripts/session-report.py`, and

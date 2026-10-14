@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import urllib.error
 import urllib.request
@@ -39,6 +40,26 @@ WINDOWS = ("rolling", "weekly", "monthly")
 _LOCK = threading.Lock()
 
 
+class CodexUsageError(RuntimeError):
+    """A safe-to-display failure while reading the Codex account's usage."""
+
+
+class CodexAuthMissingError(CodexUsageError):
+    """The read-only Codex credential file or one of its credentials is absent."""
+
+
+class CodexTokenExpiredError(CodexUsageError):
+    """The Codex service rejected the stored access token."""
+
+
+class CodexNetworkError(CodexUsageError):
+    """The Codex usage endpoint could not be reached."""
+
+
+class CodexResponseError(CodexUsageError):
+    """The Codex usage endpoint returned an unreadable response."""
+
+
 def _package_version() -> str:
     try:
         return version("willia")
@@ -49,6 +70,23 @@ def _package_version() -> str:
 def usage_file(root: str | Path) -> Path:
     """The meter's own append-only file, beside the chat's other logs."""
     return paths(root).logs_dir / USAGE_FILE
+
+
+def countdown(seconds: Any) -> str:
+    """Render a nonnegative duration using the usage surfaces' compact form."""
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        return "?"
+    if not math.isfinite(seconds):
+        return "?"
+    remaining = max(0, int(seconds))
+    days, remaining = divmod(remaining, 86_400)
+    hours, remaining = divmod(remaining, 3_600)
+    minutes = remaining // 60
+    if days:
+        return f"{days}d{hours}h"
+    if hours:
+        return f"{hours}h{minutes}m"
+    return f"{minutes}m"
 
 
 def _first_int(*candidates: Any) -> int:
@@ -168,3 +206,88 @@ def subscription_windows(config: Config, *, timeout: float = 20.0,
         data = json.loads(response.read().decode("utf-8", "replace"))
     windows = data.get("usage") if isinstance(data, dict) else None
     return windows if isinstance(windows, dict) else {}
+
+
+def _codex_window(raw: Any, label: str) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    percent = raw.get("used_percent")
+    resets_in_s = raw.get("reset_after_seconds")
+    return {
+        "label": label,
+        "percent": percent if isinstance(percent, (int, float)) and not isinstance(percent, bool)
+        else None,
+        "resets_in_s": (
+            resets_in_s
+            if isinstance(resets_in_s, (int, float)) and not isinstance(resets_in_s, bool)
+            else None
+        ),
+    }
+
+
+def codex_windows(*, base: str = "https://chatgpt.com/backend-api/codex",
+                  auth_file: str | Path | None = None, timeout: float = 20.0) -> dict:
+    """Read and normalize the Codex account's plan windows without changing its auth.
+
+    The credential is read once from ``~/.codex/auth.json``.  This function never refreshes it,
+    writes it, or includes credential or account data in an exception.
+    """
+    auth_path = Path(auth_file) if auth_file is not None else Path.home() / ".codex" / "auth.json"
+    try:
+        auth = json.loads(auth_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise CodexAuthMissingError("Codex auth file is absent") from exc
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CodexAuthMissingError("Codex auth file is unavailable") from exc
+
+    tokens = auth.get("tokens") if isinstance(auth, dict) else None
+    access_token = tokens.get("access_token") if isinstance(tokens, dict) else None
+    account_id = tokens.get("account_id") if isinstance(tokens, dict) else None
+    if not isinstance(access_token, str) or not access_token:
+        raise CodexAuthMissingError("Codex auth file has no access token")
+    if not isinstance(account_id, str) or not account_id:
+        raise CodexAuthMissingError("Codex auth file has no account id")
+
+    root = base.rstrip("/")
+    if root.endswith("/codex"):
+        root = root[:-len("/codex")]
+    path = "/wham" if "/backend-api" in root else "/api/codex"
+    request = urllib.request.Request(
+        root + path + "/usage",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "chatgpt-account-id": account_id,
+            "Accept": "application/json",
+            "User-Agent": f"willia/{_package_version()}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise CodexTokenExpiredError("Codex token expired (HTTP 401)") from exc
+        raise CodexNetworkError(f"Codex usage network failure (HTTP {exc.code})") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise CodexNetworkError("Codex usage network failure") from exc
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise CodexResponseError("Codex usage response was invalid") from exc
+
+    data = data if isinstance(data, dict) else {}
+    rate_limit = data.get("rate_limit")
+    rate_limit = rate_limit if isinstance(rate_limit, dict) else {}
+    model_usage = data.get("model_usage")
+    model_usage = model_usage if isinstance(model_usage, dict) else {}
+    astra = model_usage.get("gpt-6-astra")
+    astra = astra if isinstance(astra, dict) else {}
+    reset_credits = data.get("rate_limit_reset_credits")
+    reset_credits = reset_credits if isinstance(reset_credits, dict) else {}
+    plan = data.get("plan_type")
+    credits = reset_credits.get("available_count")
+    available = astra.get("available")
+    return {
+        "plan": plan if isinstance(plan, str) else None,
+        "primary": _codex_window(rate_limit.get("primary_window"), "5h"),
+        "secondary": _codex_window(rate_limit.get("secondary_window"), "7d"),
+        "reset_credits": credits if type(credits) is int else None,
+        "astra_available": available if type(available) is bool else None,
+    }

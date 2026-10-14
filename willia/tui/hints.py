@@ -43,9 +43,17 @@ HINTS = {
         "OpenCode Go, your chat route: rolling (5h) / weekly / monthly percent of the plan "
         "used. Live from GET /usage — the same call that already feeds this line."
     ),
+    "go ↺": (
+        "Your OpenCode Go reset countdowns, in the same rolling / weekly / monthly order. "
+        "They arrive with the percentages, so checking them costs no extra call."
+    ),
     "codex": (
-        "The Codex plan's 5-hour and 7-day windows. It also reports how many banked reset "
-        "credits you hold."
+        "Your Codex account's 5-hour and 7-day windows. The payload also tells you whether "
+        "the expensive Astra model is available."
+    ),
+    "codex ↺": (
+        "Your Codex reset countdowns, in 5-hour / 7-day order. They arrive with the window "
+        "percentages, so checking them costs no extra call."
     ),
     "model": (
         "The model doing the talking. Compactions use the same one — a different model would "

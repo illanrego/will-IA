@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 
 import pytest
 
-from willia import usage
+from willia import cli, usage
 from willia.client import Client
 from willia.compactor import CompactionRequest
 from willia.config import Config
@@ -25,6 +26,32 @@ MEASURED = {
 CALL = {"prompt_tokens": 100, "completion_tokens": 7,
         "prompt_tokens_details": {"cached_tokens": 90},
         "completion_tokens_details": {"reasoning_tokens": 3}}
+
+CODEX_MEASURED = {
+    "plan_type": "plus",
+    "rate_limit": {
+        "allowed": True,
+        "limit_reached": False,
+        "primary_window": {
+            "used_percent": 12, "limit_window_seconds": 18_000,
+            "reset_after_seconds": 14_900, "reset_at": 1_791_975_321,
+        },
+        "secondary_window": {
+            "used_percent": 18, "limit_window_seconds": 604_800,
+            "reset_after_seconds": 551_849, "reset_at": 1_792_512_270,
+        },
+    },
+    "model_usage": {
+        "gpt-6-astra": {
+            "available": True, "available_at": None, "credits_would_enable": False,
+        },
+    },
+    "rate_limit_reset_credits": {"available_count": 3, "applicable_available_count": 0},
+    "credits": {"has_credits": False, "unlimited": False, "balance": "0"},
+    "user_id": "must-not-escape",
+    "account_id": "must-not-escape",
+    "email": "must-not-escape@example.com",
+}
 
 
 class _Response:
@@ -152,6 +179,144 @@ def test_subscription_windows_needs_the_credential(monkeypatch, tmp_path):
     monkeypatch.setenv("WILLIA_ENV_FILE", str(tmp_path / "absent.env"))
     with pytest.raises(MissingCredential):
         usage.subscription_windows(Config())
+
+
+@pytest.mark.parametrize(("seconds", "rendered"), [
+    (720, "12m"),
+    (13_860, "3h51m"),
+    (407_400, "4d17h"),
+    (-1, "0m"),
+    (None, "?"),
+])
+def test_countdown_has_one_compact_duration_format(seconds, rendered):
+    assert usage.countdown(seconds) == rendered
+
+
+def test_codex_windows_reads_the_measured_shape_without_exposing_identity(monkeypatch, tmp_path):
+    auth_file = tmp_path / "auth.json"
+    auth_text = json.dumps({
+        "tokens": {"access_token": "secret-token", "account_id": "secret-account"},
+    })
+    auth_file.write_text(auth_text, encoding="utf-8")
+    seen = {}
+
+    def urlopen(request, timeout):
+        seen["url"] = request.full_url
+        seen["headers"] = {key.lower(): value for key, value in request.header_items()}
+        seen["timeout"] = timeout
+        return _Response(json.dumps(CODEX_MEASURED))
+
+    monkeypatch.setattr("willia.usage.urllib.request.urlopen", urlopen)
+    windows = usage.codex_windows(auth_file=auth_file, timeout=4.5)
+
+    assert seen["url"] == "https://chatgpt.com/backend-api/wham/usage"
+    assert seen["headers"]["authorization"] == "Bearer secret-token"
+    assert seen["headers"]["chatgpt-account-id"] == "secret-account"
+    assert seen["headers"]["accept"] == "application/json"
+    assert seen["headers"]["user-agent"].startswith("willia/")
+    assert seen["timeout"] == 4.5
+    assert windows == {
+        "plan": "plus",
+        "primary": {"label": "5h", "percent": 12, "resets_in_s": 14_900},
+        "secondary": {"label": "7d", "percent": 18, "resets_in_s": 551_849},
+        "reset_credits": 3,
+        "astra_available": True,
+    }
+    assert "must-not-escape" not in json.dumps(windows)
+    assert auth_file.read_text(encoding="utf-8") == auth_text
+
+
+def test_codex_windows_uses_the_non_backend_path_style(monkeypatch, tmp_path):
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(json.dumps({
+        "tokens": {"access_token": "token", "account_id": "account"},
+    }), encoding="utf-8")
+    seen = {}
+
+    def urlopen(request, timeout):
+        seen["url"] = request.full_url
+        return _Response("{}")
+
+    monkeypatch.setattr("willia.usage.urllib.request.urlopen", urlopen)
+    windows = usage.codex_windows(base="https://example.test", auth_file=auth_file)
+
+    assert seen["url"] == "https://example.test/api/codex/usage"
+    assert windows == {
+        "plan": None,
+        "primary": {"label": "5h", "percent": None, "resets_in_s": None},
+        "secondary": {"label": "7d", "percent": None, "resets_in_s": None},
+        "reset_credits": None,
+        "astra_available": None,
+    }
+
+
+def test_codex_windows_names_an_absent_auth_file(tmp_path):
+    with pytest.raises(usage.CodexAuthMissingError, match="auth file is absent") as caught:
+        usage.codex_windows(auth_file=tmp_path / "absent.json")
+    assert "token" not in str(caught.value).lower()
+
+
+@pytest.mark.parametrize(("failure", "error", "message"), [
+    (urllib.error.HTTPError("safe", 401, "no", {}, None),
+     usage.CodexTokenExpiredError, "token expired"),
+    (urllib.error.URLError("offline"), usage.CodexNetworkError, "network failure"),
+])
+def test_codex_windows_names_remote_failures_without_credentials(
+        monkeypatch, tmp_path, failure, error, message):
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(json.dumps({
+        "tokens": {"access_token": "secret-token", "account_id": "secret-account"},
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        "willia.usage.urllib.request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(failure),
+    )
+
+    with pytest.raises(error, match=message) as caught:
+        usage.codex_windows(auth_file=auth_file)
+    rendered = str(caught.value)
+    assert "secret-token" not in rendered
+    assert "secret-account" not in rendered
+
+
+def test_usage_cli_keeps_go_when_codex_is_unavailable(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(usage, "subscription_windows", lambda _config: {
+        "rolling": {"percent": 4, "resetsAt": "2099-01-01T00:00:00Z"},
+    })
+    monkeypatch.setattr(
+        usage, "codex_windows",
+        lambda: (_ for _ in ()).throw(usage.CodexNetworkError("Codex usage network failure")),
+    )
+
+    cli._print_usage(Config(root=tmp_path))
+    output = capsys.readouterr().out
+
+    assert "Calls: 0" in output
+    assert "go:\nrolling: 4% resets 2099-01-01T00:00:00Z (" in output
+    assert "codex: unavailable (Codex usage network failure)" in output
+
+
+def test_usage_cli_keeps_codex_when_go_is_unavailable(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(
+        usage, "subscription_windows",
+        lambda _config: (_ for _ in ()).throw(MissingCredential("missing Go credential")),
+    )
+    monkeypatch.setattr(usage, "codex_windows", lambda: {
+        "plan": "plus",
+        "primary": {"label": "5h", "percent": 12, "resets_in_s": 14_900},
+        "secondary": {"label": "7d", "percent": 18, "resets_in_s": 551_849},
+        "reset_credits": 3,
+        "astra_available": True,
+    })
+
+    cli._print_usage(Config(root=tmp_path))
+    output = capsys.readouterr().out
+
+    assert "Windows: unavailable (missing Go credential)" in output
+    assert "codex: plan=plus" in output
+    assert "5h: 12% resets 4h8m" in output
+    assert "7d: 18% resets 6d9h" in output
+    assert "reset credits: 3" in output
 
 
 def test_a_turn_is_metered(monkeypatch, tmp_path):
