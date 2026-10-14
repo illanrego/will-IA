@@ -15,9 +15,10 @@ Interfaces and shapes here are **extracted from the engine's source** at
 5. `TOOLS.md` — the tool set, exact JSON schemas and where each result lands.
 6. `DELEGATES.md` — the Codex/Hermes subprocess contracts and the `work` record.
 7. `ENV.md` — env matrix, paths, budgets.
-8. `PHASES.md` — P0–P4 with per-phase acceptance checks.
+8. `PHASES.md` — P0–P5 with per-phase acceptance checks.
+9. `TUI.md` — the modal terminal interface: layout, modes, keys, slices.
 
-**`optchat-gist.md` is not one of those eight:** it is the spec itself, vendored here so the
+**`optchat-gist.md` is not one of those nine:** it is the spec itself, vendored here so the
 contract's source of truth does not live in a prunable cache. Taelin's design doc, byte-identical
 at vendoring time (`sha256 12f300f7…`, 19,092 bytes), upstream
 `gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449`. Every "recipe §N" citation in this

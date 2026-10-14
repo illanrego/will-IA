@@ -194,6 +194,32 @@ skills.
 - Nothing per-turn (skill text, device lists, cron metadata, dates) entered the system prompt or
   the array.
 
+## P5 — the modal TUI (interleaved ahead of the remaining P4 batches)
+
+**Design, layout and keymap:** `TUI.md`. The layout is the approved `sketches/005-rail-data-hover`;
+the interface is a renderer over the log, and the system prompt, tool array and log format do not
+change. Illan's ruling, 2026-10-14: this comes before the rest of P4, because the REPL prints the
+model's reasoning and its answer as one indistinguishable stream.
+
+**Slices** — each one Codex run, each rideable rather than a stub:
+- **P5a** the shell: alternate screen, the transcript renderer, insert/normal modes, a real turn,
+  key scrolling, the static rail, the three palettes, `willia --tui`.
+- **P5b** pane focus and the hint line. **P5c** yank, OSC 52 clipboard, the `?` overlay.
+  **P5d** `:theme` switching and a `tui.theme` default.
+
+**Green, for P5a (run by the session, with real output)**
+- The terminal is restored — alternate buffer off, cursor shown, raw mode off — on `:q`, on `Ctrl-C`,
+  on an unhandled exception and on `SIGTERM`. Asserted, not hoped.
+- A real turn streams in the TUI with the reasoning and the answer visually distinct: the whole point
+  of the phase.
+- `j k Ctrl-d Ctrl-u gg G` scroll the transcript continuously, in-app: no mode switch, no viewport
+  snap (his complaint about tmux copy-mode).
+- The renderer is a pure function of `(records, in-flight, width, theme)` and is tested with no tty;
+  the key state machine is tested with no tty; the terminal layer's emitted sequences are asserted
+  against a fake writer.
+- The prompt, the tool array and the log format are byte-identical after the phase, and the new sink
+  defaults to today's `print`, so the REPL, the probes and every existing test are unchanged.
+
 ## Per-run verification discipline (every phase)
 
 1. Write the brief to `briefs/<phase>-<n>.md`; it cites the docs, never re-describes them.
