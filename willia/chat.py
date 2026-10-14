@@ -162,10 +162,23 @@ class Chat:
                 return messages
             messages.append({"role": "user", "content": value})
 
-    def _on_delta(self, kind: str, text: str) -> None:
+    @staticmethod
+    def _emit(sink, event: str, **data) -> None:
+        """Report a display event without letting a broken display break a turn."""
+        if sink is None:
+            return
+        try:
+            sink(event, **data)
+        except Exception:
+            pass
+
+    def _on_delta(self, kind: str, text: str, *, sink=None) -> None:
         if text:
             self._displayed = True
-            print(text, end="", flush=True)
+            if sink is None:
+                print(text, end="", flush=True)
+            else:
+                self._emit(sink, "delta", kind=kind, text=text)
 
     @staticmethod
     def _assistant(reply) -> dict:
@@ -182,7 +195,7 @@ class Chat:
             message["tool_calls"] = calls
         return message
 
-    def turn(self, texts: list[str]) -> None:
+    def turn(self, texts: list[str], *, sink=None) -> None:
         self.check_liveness()
         with self._engine():
             self.compactor.settle(max_nodes=64, timeout_s=20.0, model_calls=False)
@@ -201,9 +214,12 @@ class Chat:
                 request.extend(self._drain_deliveries())
                 self._displayed = False
                 try:
-                    reply = self.client.turn(request, self.tools, on_delta=self._on_delta)
+                    reply = self.client.turn(
+                        request, self.tools,
+                        on_delta=lambda kind, text: self._on_delta(kind, text, sink=sink),
+                    )
                 finally:
-                    if self._displayed:
+                    if self._displayed and sink is None:
                         print(flush=True)
                 assistant = self._assistant(reply)
                 self._log_message(assistant)
@@ -214,7 +230,11 @@ class Chat:
                         if empty_replies == 1:
                             request.extend(self._users(self._drain_inbox()))
                             continue
-                        print("The model returned no ordinary content after one retry.")
+                        notice = "The model returned no ordinary content after one retry."
+                        if sink is None:
+                            print(notice)
+                        else:
+                            self._emit(sink, "notice", text=notice)
                     break
                 empty_replies = 0
                 for call in reply.tool_calls:
@@ -222,25 +242,43 @@ class Chat:
                     displayed = arguments if isinstance(arguments, str) else json.dumps(
                         arguments, ensure_ascii=False)
                     displayed = displayed.replace("\r", "\\r").replace("\n", "\\n")
-                    print(f"→ {call.name} {displayed}", flush=True)
+                    if sink is None:
+                        print(f"→ {call.name} {displayed}", flush=True)
+                    else:
+                        self._emit(
+                            sink, "tool_call", name=call.name,
+                            arguments=arguments, displayed=displayed,
+                        )
+                    started = time.monotonic()
                     with self._engine():
                         result = dispatch(
                             call.name, arguments, log=self.log, tree=self.tree,
                             view=self.view, root=self.root,
                             node_bytes=self.config.node_bytes, chat=self)
+                    elapsed_ms = (time.monotonic() - started) * 1000.0
                     message = {"role": "tool", "tool_call_id": call.id, "content": result}
                     record_tool = None if call.name in {
                         "delegate_codex", "delegate_hermes"
                     } else call.name
                     self._log_message(message, record_tool)
                     request.append(message)
-                    print((result.splitlines() or [""])[0][:200], flush=True)
+                    if sink is None:
+                        print((result.splitlines() or [""])[0][:200], flush=True)
+                    else:
+                        self._emit(
+                            sink, "tool_result", name=call.name, result=result,
+                            elapsed_ms=elapsed_ms,
+                        )
                 request.extend(self._drain_deliveries())
                 request.extend(self._users(self._drain_inbox()))
         except ClientError as exc:
-            print(f"Error: {exc}", flush=True)
+            notice = f"Error: {exc}"
+            if sink is None:
+                print(notice, flush=True)
+            else:
+                self._emit(sink, "notice", text=notice)
         finally:
-            self.end_turn()
+            self.end_turn(sink=sink)
 
     def save(self) -> None:
         with self._engine():
@@ -345,7 +383,7 @@ class Chat:
         self._run_pass(deadline=time.monotonic() + 20.0)
         return True
 
-    def end_turn(self) -> None:
+    def end_turn(self, *, sink=None) -> None:
         self.save()
         watchdog_ran = self.check_liveness()
         drain = self._drain
@@ -355,9 +393,12 @@ class Chat:
         usage = self.client.last_usage
         cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
         reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
-        print(f"prompt_tokens={usage.get('prompt_tokens', 0)} "
-              f"cached_tokens={usage.get('cached_tokens', cached)} "
-              f"reasoning_tokens={usage.get('reasoning_tokens', reasoning)}", flush=True)
+        if sink is None:
+            print(f"prompt_tokens={usage.get('prompt_tokens', 0)} "
+                  f"cached_tokens={usage.get('cached_tokens', cached)} "
+                  f"reasoning_tokens={usage.get('reasoning_tokens', reasoning)}", flush=True)
+        else:
+            self._emit(sink, "end", usage=dict(usage))
 
     def status(self) -> list[str]:
         drain = self._drain

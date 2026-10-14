@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import notes, repl, text, usage
+from . import notes, repl, text, tui, usage
 from .chat import Chat
 from .config import Config
 from .envfile import MissingCredential
@@ -271,6 +271,8 @@ def main(argv=None) -> int:
                       help="validate and adopt the saved view publication")
     mode.add_argument("--usage", action="store_true",
                       help="print the usage meter and the account's plan windows")
+    mode.add_argument("--tui", action="store_true",
+                      help="run the modal terminal interface")
     mode.add_argument("--notes", nargs="*", metavar="PATH",
                       help="import markdown files as note records")
     parser.add_argument("--notes-recursive", action="store_true",
@@ -310,12 +312,16 @@ def main(argv=None) -> int:
         if options.usage:
             _print_usage(config)
             return 0
+        if options.tui and not sys.stdout.isatty():
+            raise ValueError("--tui requires stdout to be a terminal")
         if options.new:
             _archive(config.root)
         chat = Chat.open(config)
         try:
             if options.status:
                 print("\n".join(chat.status()))
+            elif options.tui:
+                tui.run(chat)
             else:
                 repl.run(chat)
         finally:

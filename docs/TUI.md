@@ -52,6 +52,9 @@ terminal, and this is better, because a focused thing can be yanked and searched
 - **The terminal is always restored** — alternate buffer off, cursor shown, raw mode off — on every
   exit path: `:q`, `Ctrl-C`, an unhandled exception, and `SIGTERM`. This is the classic TUI failure and
   it is a test, not a hope.
+- **The stream is coalesced.** A delta arrives per token, so the frame is painted at most every
+  ~33 ms, and once more when the turn ends. A paint per token flickers: measured at 61 full repaints
+  for one short reply before the fix.
 - **Resize** on `SIGWINCH`: re-measure and redraw. A draw is a full repaint; at this size that is
   cheap and it removes a whole class of partial-update bugs.
 - **Width**, not length: `wcwidth`-style handling via `unicodedata.east_asian_width` (stdlib), because
