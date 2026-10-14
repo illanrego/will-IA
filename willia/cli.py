@@ -6,6 +6,8 @@ never deletes history or replaces unavailable view state.
 
 from __future__ import annotations
 
+import os
+
 import argparse
 from collections import Counter
 import json
@@ -117,6 +119,31 @@ def _restore_view(config: Config) -> tuple[int, int, int]:
     finally:
         chat.close()
     return covered, records, roots_added
+
+
+def _print_palette() -> None:
+    """Every theme's tokens as swatches, at the depth this program detects.
+
+    A swatch that does not match the hex beside it means something between here and the eye is
+    converting the colour - tmux without truecolor, a terminal theme, a contrast floor.
+    """
+    from willia.tui import theme as theme_mod
+
+    order = ("bg", "panel", "rule", "rule_strong", "body", "dim", "reason", "agent",
+             "data", "amber", "red", "ok", "you", "strong")
+    depth = theme_mod.colour_depth()
+    environment = {k: v for k, v in os.environ.items()
+                   if k in {"TERM", "COLORTERM", "TERM_PROGRAM"}}
+    print(f"detected depth: {depth}   environment: {environment}")
+    print("a swatch that does not match its hex is being converted in between\n")
+    for name in ("blue", "green", "mixed"):
+        palette = theme_mod.PALETTES[name]
+        print(f"{name}:")
+        for token in order:
+            colour = palette[token]
+            swatch = theme_mod.ansi_colour(colour, depth)
+            print(f"  {token:<12} {colour:<9} {swatch}{'████████'}\x1b[0m")
+        print()
 
 
 def _print_usage(config: Config) -> None:
@@ -300,6 +327,8 @@ def main(argv=None) -> int:
     mode.add_argument("--status", action="store_true", help="print chat state and exit")
     mode.add_argument("--restore-view", action="store_true",
                       help="validate and adopt the saved view publication")
+    mode.add_argument("--palette", action="store_true",
+                       help="print every theme's palette as swatches at the detected depth")
     mode.add_argument("--usage", action="store_true",
                       help="print the usage meter and the account's plan windows")
     mode.add_argument("--tui", action="store_true",
@@ -339,6 +368,9 @@ def main(argv=None) -> int:
             covered, records, roots_added = _restore_view(config)
             print(f"Restored view: covered_end={covered} records={records} "
                   f"roots_added={roots_added}")
+            return 0
+        if options.palette:
+            _print_palette()
             return 0
         if options.usage:
             _print_usage(config)

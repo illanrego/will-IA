@@ -740,6 +740,11 @@ class App:
         self.rail_index = min(self.rail_index, max(0, len(facts) - 1))
         for index, (label, value, style) in enumerate(facts):
             if label.startswith("#"):
+                if lines:                      # 005's .sep and its gap between sections
+                    # The gap carries the rail's width in spaces: an empty string makes the
+                    # composer drop the rail column on that row and the transcript slides left.
+                    lines.append(Line(" " * (RAIL_WIDTH - 1), "body"))
+                    lines.append(Line("─" * (RAIL_WIDTH - 1), "rule"))
                 text = label[1:].upper()
                 if label in self.collapsed_groups:
                     text += f" [{value}]"
