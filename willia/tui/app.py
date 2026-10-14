@@ -13,7 +13,9 @@ Three things here exist because the first version was slow, and each is load-bea
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 import queue
 import threading
 import time
@@ -109,6 +111,7 @@ class App:
         self._last_rail = 0.0
         self._cache: list[Line] = []
         self._cache_key: tuple | None = None
+        self._report_paths: dict[str, str] = {}
         if hasattr(self.screen, "on_resize"):
             self.screen.on_resize = self.redraw
         self._refresh_records()
@@ -121,6 +124,24 @@ class App:
         try:
             count = self.chat.log.count()
             self.records = self.chat.log.range(max(0, count - _RECORD_WINDOW), count - 1)
+            report_paths: dict[str, str] = {}
+            for record in self.records:
+                kind = (record.get("kind") if isinstance(record, dict)
+                        else getattr(record, "kind", ""))
+                value = (record.get("text", "") if isinstance(record, dict)
+                         else getattr(record, "text", ""))
+                if kind != "echo":
+                    continue
+                try:
+                    packet = json.loads(value)
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(packet, dict):
+                    continue
+                name, path = packet.get("name"), packet.get("report_path")
+                if isinstance(name, str) and isinstance(path, str) and Path(path).is_file():
+                    report_paths[name] = path
+            self._report_paths = report_paths
         except Exception:
             pass
 
@@ -245,11 +266,12 @@ class App:
     def _transcript(self, centre: int) -> list[Line]:
         """The durable transcript, wrapped once per change and then sliced."""
         key = (self.chat.log.count(), centre, self.theme, self.show_notes, len(self.records),
-               frozenset(self.collapsed_records))
+               frozenset(self.collapsed_records), tuple(sorted(self._report_paths.items())))
         if self._cache_key != key:
             self._cache = render(self.records, (), centre, -1, self.theme,
                                  show_notes=self.show_notes,
-                                 collapsed_records=self.collapsed_records)
+                                 collapsed_records=self.collapsed_records,
+                                 report_paths=self._report_paths)
             self._cache_key = key
         return self._cache
 
@@ -688,6 +710,14 @@ class App:
     def _rail_lines(self, height: int) -> list[Line]:
         lines: list[Line] = []
         facts = self._visible_rail_facts()
+        raw_levels = {
+            str(label): int(value)
+            for label, value, _style in facts
+            if str(label).startswith("l") and str(label)[1:].isdigit()
+            and str(value).isdigit()
+        }
+        biggest = max(raw_levels.values(), default=0)
+        count_width = max((len(str(count)) for count in raw_levels.values()), default=1)
         self.rail_index = min(self.rail_index, max(0, len(facts) - 1))
         for index, (label, value, style) in enumerate(facts):
             if label.startswith("#"):
@@ -699,12 +729,16 @@ class App:
                 spans = (Span(shown, token, "panel"),) if token == "strong" else ()
                 lines.append(Line(shown, token, spans))
                 continue
-            available = RAIL_WIDTH - 2
+            if str(label) in raw_levels:
+                count = raw_levels[str(label)]
+                filled = max(1, round(12 * count / biggest)) if count and biggest else 0
+                value = "█" * filled + " " * (12 - filled) + f" {count:>{count_width}}"
+            available = RAIL_WIDTH - 1
             label_width = min(9, available)
             value_width = max(0, available - label_width - 1)
             text = (fit(str(label), label_width) + " "
-                    + fit(str(value), value_width, pad=False))
-            shown = fit(text, RAIL_WIDTH - 1)
+                    + fit(str(value), value_width, ellipsis="…", pad=False))
+            shown = fit(text, RAIL_WIDTH - 1, ellipsis="…")
             selected = index == self.rail_index and self.focus == Pane.RAIL
             lines.append(Line(
                 shown, "strong" if selected else style,

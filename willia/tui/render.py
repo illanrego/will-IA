@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .theme import palette
 
@@ -58,6 +58,9 @@ def fit(text: str, width: int, *, ellipsis: str = "", pad: bool = True) -> str:
     """Truncate to ``width`` cells in one linear pass, optionally padding with spaces."""
     if width <= 0:
         return ""
+    total = cell_width(text)
+    if total <= width:
+        return text + (" " * (width - total) if pad else "")
     limit = width - cell_width(ellipsis) if ellipsis else width
     limit = max(0, limit)
     used = 0
@@ -138,47 +141,70 @@ def _field(item: Any, name: str, default: Any = None) -> Any:
     return getattr(item, name, default)
 
 
+def _quoted(value: Any) -> str:
+    """A compact, single-line quoted tool argument value."""
+    if not isinstance(value, str):
+        value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _arguments(value: Any) -> str:
-    if isinstance(value, str):
-        return value.replace("\r", "\\r").replace("\n", "\\n")
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if isinstance(value, dict):
+        return "  ".join(f"{key} {_quoted(item)}" for key, item in value.items())
+    return f"arguments {_quoted(value)}"
 
 
-def _tool_line(name: str, arguments: Any, width: int,
-               elapsed_ms: float | None = None) -> list[Line]:
-    """One line, always: the arguments are clipped, not wrapped."""
-    suffix = "" if elapsed_ms is None else f"  {elapsed_ms:.0f}ms"
-    prefix = 2 + cell_width(name) + 1
-    available = max(1, width - prefix - cell_width(suffix))
-    shown = fit(_arguments(arguments), available, ellipsis="…", pad=False)
-    text = f"→ {name} {shown}{suffix}"
-    spans = (Span("→ ", "agent"), Span(name, "agent"),
-             Span(" " + shown + suffix, "dim"))
-    return [Line(text, "agent", spans)]
+def _tool_line(arguments: Any, width: int) -> list[Line]:
+    """One content line, always: argument pairs are clipped, never wrapped."""
+    shown = fit(_arguments(arguments), width, ellipsis="…", pad=False)
+    return [Line(shown, "dim")]
 
 
-ECHO_LINES = 2
+CLIPPED_LINES = 3
 
 
-def _echo(text: str, width: int) -> list[Line]:
-    logical = text.splitlines() or [""]
-    lines: list[Line] = []
-    for source_index, value in enumerate(logical[:ECHO_LINES]):
-        lines.extend(Line(
-            line.text, line.style, line.spans, source_text=value,
-            source_index=source_index,
-        ) for line in wrap(value, width, "dim"))
-    if len(logical) > ECHO_LINES:
-        remaining = "\n".join(logical[ECHO_LINES:])
-        lines.extend(Line(
-            line.text, line.style, line.spans, source_text=remaining,
-            source_index=ECHO_LINES,
-        ) for line in wrap(f"… {len(logical) - ECHO_LINES} more", width, "dim"))
-    return lines
+def _clipped(text: str, width: int, style: str, *, report_path: str | None = None,
+             limit: int = CLIPPED_LINES) -> list[Line]:
+    """Wrap first, then bound physical rows and report the exact omitted count."""
+    lines = wrap(text, width, style)
+    if len(lines) <= limit:
+        return lines
+    omitted = len(lines) - limit
+    suffix = "line" if omitted == 1 else "lines"
+    trailer = f"… {omitted} more {suffix}"
+    if report_path:
+        trailer += f" - full report: {report_path}"
+    hidden = "\n".join(line.source_text or "" for line in lines[limit:])
+    return [*lines[:limit], Line(
+        fit(trailer, width, ellipsis="…", pad=False), "dim",
+        source_text=hidden, source_index=lines[limit].source_index,
+    )]
+
+
+def _reasoning(text: str, width: int) -> list[Line]:
+    return _wrap_runs((
+        Span("│ ", "rule_strong"), Span(text, "reason"),
+    ), width)
+
+
+def _block(label: str, label_style: str, content: list[Line], width: int) -> list[Line]:
+    """Frame one record with a rule and an unpadded label."""
+    return [
+        Line("─" * width, "rule", source_index=-1),
+        Line(label, label_style, source_index=-1),
+        *content,
+    ]
+
+
+def _work_parts(text: str) -> tuple[str, str]:
+    if text.startswith("[") and "]" in text:
+        end = text.index("]") + 1
+        return text[:end], text[end:].lstrip()
+    return "", text
 
 
 def record_lines(record: Any, width: int, *, show_notes: bool = False,
-                 collapsed: bool = False) -> list[Line]:
+                 collapsed: bool = False, report_path: str | None = None) -> list[Line]:
     """One record's lines. ``show_notes`` includes imported memory; ``collapsed`` keeps one line."""
     kind = _field(record, "kind", "")
     text = _field(record, "text", "")
@@ -187,104 +213,105 @@ def record_lines(record: Any, width: int, *, show_notes: bool = False,
     def tagged(lines: list[Line]) -> list[Line]:
         return [Line(
             line.text, line.style, line.spans, record_id=record_id, record_kind=kind,
-            source_text=line.source_text if line.source_text is not None else text,
+            source_text=(None if line.source_index == -1 else
+                         line.source_text if line.source_text is not None else text),
             source_index=line.source_index,
         ) for line in lines]
 
-    if kind == "note":
-        if not show_notes:
-            return []
-        head = text.strip().splitlines()[0] if text.strip() else ""
-        return tagged([Line(fit(f"note · {head}", width, ellipsis="…", pad=False), "dim")])
+    if kind == "note" and not show_notes:
+        return []
     if collapsed and kind in {"will", "user", "echo"}:
         head = text.strip().splitlines()[0] if text.strip() else ""
-        return tagged([Line(
-            fit(head, width, ellipsis="…", pad=False), "dim",
-            source_text=head, source_index=0,
-        )])
+        content = [Line(fit(head, width, ellipsis="…", pad=False), "dim",
+                        source_text=head, source_index=0)]
+        label = {"user": "ILLAN", "will": "WILLIA", "echo": "RESULT"}[kind]
+        label_style = {"user": "you", "will": "body", "echo": "dim"}[kind]
+        return tagged(_block(label, label_style, content, width))
     if kind == "user":
-        return tagged(wrap(text, width, "you"))
+        return tagged(_block("ILLAN", "you", wrap(text, width, "you"), width))
     if kind == "will":
-        return tagged(wrap(text, width, "body"))
+        return tagged(_block("WILLIA", "body", wrap(text, width, "body"), width))
     if kind == "echo":
-        return tagged(_echo(text, width))
+        return tagged(_block("RESULT", "dim", _clipped(text, width, "dim"), width))
     if kind == "work":
-        if text.startswith("[") and "]" in text:
-            end = text.index("]") + 1
-            tag, body = text[:end], text[end:]
-            shown = fit(body.lstrip(), max(1, width - cell_width(tag) - 1),
-                        ellipsis="…", pad=False)
-            spans = (Span(tag, "amber"), Span(" " + shown, "dim"))
-            return tagged([Line(tag + " " + shown, "amber", spans)])
-        return tagged([Line(fit(text, width, ellipsis="…", pad=False), "dim")])
+        badge, body = _work_parts(text)
+        label = f"WORK · {badge}" if badge else "WORK"
+        content = _clipped(body, width, "dim", report_path=report_path)
+        return tagged(_block(label, "amber", content, width))
     if kind == "tool":
         try:
             packet = json.loads(text)
         except (TypeError, json.JSONDecodeError):
             packet = {}
         if isinstance(packet, dict) and isinstance(packet.get("name"), str):
-            return tagged(_tool_line(packet["name"], packet.get("arguments"), width))
-        return tagged(wrap("→ " + text, width, "dim"))
-    return tagged(wrap(text, width, "body"))
-
-
-# A blank line separates conversation blocks; tool traffic stays tight under its call.
-_SPACED = {"user", "will", "work"}
+            content = _tool_line(packet.get("arguments"), width)
+            return tagged(_block(f"TOOL · {packet['name']}", "agent", content, width))
+        content = [Line(fit(text, width, ellipsis="…", pad=False), "dim")]
+        return tagged(_block("TOOL", "agent", content, width))
+    if kind == "note":
+        return tagged(_block("NOTE", "dim", wrap(text, width, "dim"), width))
+    if kind == "reasoning":
+        return tagged(_block("THINK", "reason", _reasoning(text, width), width))
+    return tagged(_block(kind.upper() or "RECORD", "dim", wrap(text, width, "body"), width))
 
 
 def _flight_lines(events: Iterable[Any], width: int) -> list[Line]:
     lines: list[Line] = []
-    pending_kind = None
-    pending_text = ""
+    pending: list[tuple[str, str]] = []
 
     def flush() -> None:
-        nonlocal pending_kind, pending_text
-        if pending_text:
-            if pending_kind == "reasoning":
-                produced = _wrap_runs((
-                    Span("│ ", "rule_strong"), Span(pending_text, "reason"),
-                ), width)
-                lines.extend(Line(
-                    line.text, line.style, line.spans, record_kind="reasoning",
-                    source_text=pending_text, source_index=0,
-                ) for line in produced)
-            else:
-                produced = wrap(pending_text, width, "body")
-                lines.extend(Line(
-                    line.text, line.style, line.spans, record_kind="will",
-                    source_text=line.source_text, source_index=line.source_index,
-                ) for line in produced)
-        pending_kind = None
-        pending_text = ""
+        if not pending:
+            return
+        content: list[Line] = []
+        for kind, value in pending:
+            produced = _reasoning(value, width) if kind == "reasoning" else wrap(
+                value, width, "body")
+            content.extend(Line(
+                line.text, line.style, line.spans,
+                record_kind="reasoning" if kind == "reasoning" else "will",
+                source_text=line.source_text if line.source_text is not None else value,
+                source_index=line.source_index,
+            ) for line in produced)
+        framed = _block("WILLIA", "body", content, width)
+        lines.extend(Line(
+            line.text, line.style, line.spans, record_kind=line.record_kind or "will",
+            source_text=line.source_text, source_index=line.source_index,
+        ) for line in framed)
+        pending.clear()
 
     for event in events or ():
         event_name = _field(event, "event", _field(event, "type", ""))
         if event_name == "delta":
             kind = _field(event, "kind", "content")
-            if pending_kind not in {None, kind}:
-                flush()
-            pending_kind = kind
-            pending_text += str(_field(event, "text", ""))
+            value = str(_field(event, "text", ""))
+            if pending and pending[-1][0] == kind:
+                pending[-1] = (kind, pending[-1][1] + value)
+            else:
+                pending.append((kind, value))
             continue
         flush()
         if event_name == "user":
-            produced = wrap(str(_field(event, "text", "")), width, "you")
+            value = str(_field(event, "text", ""))
+            produced = _block("ILLAN", "you", wrap(value, width, "you"), width)
             lines.extend(Line(
                 line.text, line.style, line.spans, record_kind="user",
                 source_text=line.source_text, source_index=line.source_index,
             ) for line in produced)
         elif event_name == "tool_call":
-            produced = _tool_line(
-                str(_field(event, "name", "tool")),
-                _field(event, "arguments"), width,
-                _field(event, "elapsed_ms"),
+            name = str(_field(event, "name", "tool"))
+            produced = _block(
+                f"TOOL · {name}", "agent",
+                _tool_line(_field(event, "arguments"), width), width,
             )
             lines.extend(Line(
                 line.text, line.style, line.spans, record_kind="tool",
                 source_text=str(_field(event, "arguments", "")),
             ) for line in produced)
         elif event_name == "tool_result":
-            produced = _echo(str(_field(event, "result", "")), width)
+            produced = _block(
+                "RESULT", "dim",
+                _clipped(str(_field(event, "result", "")), width, "dim"), width,
+            )
             lines.extend(Line(
                 line.text, line.style, line.spans, record_kind="echo",
                 source_text=line.source_text,
@@ -305,26 +332,27 @@ def viewport(lines: list[Line], height: int, offset: int = 0) -> list[Line]:
 
 
 def render(records, in_flight, width, height, theme, *,
-           show_notes: bool = False, collapsed_records=()) -> list[Line]:
+           show_notes: bool = False, collapsed_records=(),
+           report_paths: Mapping[str, str] | None = None) -> list[Line]:
     """Render durable records plus ephemeral stream events, without any I/O."""
     colours = palette(theme)
     width = max(1, width)
     lines: list[Line] = []
-    previous_kind = None
+    report_paths = report_paths or {}
     for record in records:
         if record is None:
             continue
         kind = _field(record, "kind", "")
+        text = _field(record, "text", "")
+        badge, _body = _work_parts(text) if kind == "work" else ("", "")
         produced = record_lines(
             record, width, show_notes=show_notes,
             collapsed=_field(record, "i") in collapsed_records,
+            report_path=report_paths.get(badge[1:-1]) if badge else None,
         )
         if not produced:
             continue
-        if kind != previous_kind and previous_kind in _SPACED and kind in _SPACED:
-            lines.append(Line("", "body"))
         lines.extend(produced)
-        previous_kind = kind
     lines.extend(_flight_lines(in_flight or (), width))
     if any(line.style not in colours for line in lines):
         raise ValueError("Renderer produced an unknown style token")

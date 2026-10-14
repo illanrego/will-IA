@@ -63,6 +63,14 @@ def build_rail_facts(chat, windows=None, codex_windows=None, *, now=None, blocki
         )
         queue_depth = len(chat.compactor._pending)
     total = sum(levels.values())
+    biggest = max(levels.values(), default=0)
+    count_width = max((len(str(count)) for count in levels.values()), default=1)
+
+    def level_value(count: int) -> str:
+        filled = max(1, round(12 * count / biggest)) if count and biggest else 0
+        bar = "█" * filled + " " * (12 - filled)
+        return f"{bar} {count:>{count_width}}"
+
     low, high = chat.config.view_min_bytes, chat.config.view_max_bytes
     position = 0.0 if high == low else (view_bytes - low) / (high - low)
     position = max(0.0, min(1.0, position))
@@ -104,7 +112,8 @@ def build_rail_facts(chat, windows=None, codex_windows=None, *, now=None, blocki
 
     sources = {
         "#memory": ("", "dim"),
-        **{f"l{level}": (str(levels[level]), "data") for level in sorted(levels)},
+        **{f"l{level}": (level_value(levels[level]), "data")
+           for level in sorted(levels)},
         "nodes": (str(total), "data"),
         "#view": ("", "dim"),
         "bytes": (f"{view_bytes:,} B", "data"),

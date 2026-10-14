@@ -146,7 +146,10 @@ def test_transcript_fold_targets_only_the_record_under_the_cursor():
     app.handle_key("ENTER")
     assert app.collapsed_records == {1}
     lines = app._transcript(app._body_size()[2])
-    assert [line.text for line in lines] == ["first line", "second line", "separate record"]
+    assert [line.text for line in lines] == [
+        "─" * 20, "ILLAN", "first line", "second line",
+        "─" * 20, "ILLAN", "separate record",
+    ]
     app.handle_key("ESC")
     assert app.collapsed_records == set()
 
@@ -319,7 +322,7 @@ def test_notes_are_hidden_by_default_and_visible_with_the_command():
     assert app._transcript(20) == []
     press(app, ":", "n", "o", "t", "e", "s", "ENTER")
     assert app.show_notes is True
-    assert [line.text for line in app._transcript(20)] == ["note · memory"]
+    assert [line.text for line in app._transcript(20)] == ["─" * 20, "NOTE", "memory"]
 
 
 def test_every_rail_row_explains_itself(tmp_path):
