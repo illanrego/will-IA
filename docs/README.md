@@ -76,7 +76,7 @@ string survives anywhere in the program, warnings included.
 | REPL, config, `willia` launcher | not written |
 | Native tools (web/vision), delegates | not written |
 | Notes import, first rides, usage meter | not written (P3) |
-| Hermes-parity tools (shell, files, browser, computer use, voice, cron, MCP, skills) | not written (P4, `TOOLS.md` §9) |
+| Hermes-parity tools (browser, computer use, voice) | not written (P4, `TOOLS.md` §9) — shell, files, MCP, skills and todo have landed; cron was dropped on 2026-10-14 (the Hermes gateway covers it) |
 
 ## Standing rules for every brief and every commit
 

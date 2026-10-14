@@ -14,7 +14,9 @@ from pathlib import Path
 from .persistence import read_jsonl, sync_directory
 
 
-KINDS = frozenset({"user", "will", "tool", "echo", "work", "note"})
+KINDS = frozenset({
+    "user", "will", "tool", "echo", "work", "note", "todo",
+})
 
 
 @dataclass(frozen=True)

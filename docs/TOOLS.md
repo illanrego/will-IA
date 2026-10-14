@@ -7,7 +7,8 @@ prompt's text (the host build once shipped `zoom`/`date` in the prompt while the
 were `optchat_*`, and navigation was impossible — `ENGINE.md` §6).
 
 Current array, in this order: `zoom`, `date`, `delegate_codex`, `delegate_hermes`, `web_search`,
-`web_extract`, `vision`, `terminal`, `read_file`, `write_file`, `patch`, `search_files`.
+`web_extract`, `vision`, `terminal`, `read_file`, `write_file`, `patch`, `search_files`, `mcp`,
+`skills`, `todo`.
 
 ## 1. Renames and result rules
 
@@ -173,6 +174,9 @@ keep little of tool output (the recipe's line that does the most work).
 | `write_file` | `echo` | path and byte count |
 | `patch` | `echo` | path, unified diff and replacement count |
 | `search_files` | `echo` | bounded match list |
+| `mcp` | `echo` | configured servers and remote tool results; server processes close at turn end |
+| `skills` | `echo` | available metadata or one complete `SKILL.md` |
+| `todo` | `echo` | the operation result; todo state itself is rebuilt from `todo` records |
 | an unknown tool name | `echo` | `{"error": "unknown tool: <name>"}` — never silently dropped |
 
 ## 9. Hermes-parity tools (P4; shell + files landed)
@@ -183,20 +187,19 @@ The v1 array was small because it had to be. The tools you actually use daily on
 | Group | Tools | Notes |
 |---|---|---|
 | shell + files | `terminal`, `read_file`, `write_file`, `patch`, `search_files` | **Landed in P4a.** Workspace defaults apply to relative paths and shell execution; absolute paths remain available. |
-| planning | `todo` | per-turn state goes **after** the view. |
+| planning | `todo` | **Landed.** State is rebuilt from records in the chat log. |
 | browse | `browser` (local playwright) | the site-check and posting-automation workflows. |
 | computer use | `computer_use` (desktop driving) | the heavy one; in Hermes it is a driver process. Keep it in the delegate lane until it earns its place in the array. |
 | voice | `tts` (Edge `en-US-GuyNeural`), voice notes in | |
-| time | `cron` (recurring turns) | an **extension**: the design has no clock trigger. A cron fires a turn; its metadata goes after the view, never in the prompt. |
-| ecosystem | `mcp` client, `skills` (markdown procedures) | so the existing servers and skills keep working. Skill text is per-turn → after the view. |
+| ecosystem | `mcp` client, `skills` (markdown procedures) | **Landed.** Server schemas stay behind the one fixed `mcp` tool; skill text is returned only by calls. |
 
 Two constraints on every addition:
 
 1. **The tool array is a cache anchor.** Adding or editing a schema invalidates the shared prefix
    once (recipe §3.3: tools and system prompt never change). So tools land in **batches**, and after
    each batch the schemas are frozen — which is why v1's array is chosen now instead of grown.
-2. **Nothing per-turn may enter the array or the system prompt.** Skill text, device lists, cron
-   metadata, dates: all of it goes **after** the view (recipe §6, §7.10). Tool results stay JSON
+2. **Nothing per-turn may enter the array or the system prompt.** Skill text, device lists and
+   dates all go **after** the view (recipe §6, §7.10). Tool results stay JSON
    strings and never carry list-type content (the Go relay — `WIRE-FORMATS` §1).
 
 ### 9.1 P4a — shell + files
@@ -272,4 +275,53 @@ and reports `replaced_bytes`.
     "file_glob": {"type": "string", "description": "Restrict a content search to matching files, e.g. *.py."},
     "limit": {"type": "integer", "description": "Maximum results (default 50)."}},
    "required": ["pattern"]}}}
+```
+
+### 9.2 P4b — MCP, skills and todo
+
+Only the fixed `mcp` wrapper is in the array; tools advertised by configured servers are runtime
+results and never multiply the cache prefix. Each stdio server receives `initialize`, then
+`notifications/initialized`, then `tools/list` or `tools/call`. Servers are bounded by a timeout,
+and their whole process groups are closed at the end of every turn.
+
+Skills are discovered read-only in this order: `$WILLIA_SKILLS`, `<workspace>/skills`, then
+`~/.hermes/skills`. Discovery does not follow directory symlinks and stops at depth four. `list`
+returns frontmatter names and descriptions plus the exact number omitted by its result cap; `read`
+returns the whole selected file or nearby names when no exact name exists.
+
+Todo operations append `todo` records to the chat log, so their state follows the normal view and
+compaction lifecycle. `list` returns every live item, open first and then completed, with stable
+record ids; it never silently truncates.
+
+```json
+{"type": "function", "function": {
+  "name": "mcp",
+  "description": "List configured MCP servers and their tools, or call one tool over stdio.",
+  "parameters": {"type": "object", "properties": {
+    "action": {"type": "string", "enum": ["list", "call"]},
+    "server": {"type": "string"},
+    "name": {"type": "string", "description": "The MCP tool name to call."},
+    "arguments": {"type": "object", "description": "Arguments for the MCP tool."}},
+   "required": ["action"]}}}
+```
+
+```json
+{"type": "function", "function": {
+  "name": "skills",
+  "description": "List available SKILL.md procedures or read one in full.",
+  "parameters": {"type": "object", "properties": {
+    "action": {"type": "string", "enum": ["list", "read"]},
+    "name": {"type": "string", "description": "The skill name to read."}},
+   "required": ["action"]}}}
+```
+
+```json
+{"type": "function", "function": {
+  "name": "todo",
+  "description": "Add, list, complete or drop durable planning items in the chat log.",
+  "parameters": {"type": "object", "properties": {
+    "action": {"type": "string", "enum": ["add", "list", "done", "drop"]},
+    "text": {"type": "string", "description": "The item text to add."},
+    "id": {"type": "integer", "description": "The item id to complete or drop."}},
+   "required": ["action"]}}}
 ```

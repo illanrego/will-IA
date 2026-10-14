@@ -6,6 +6,7 @@ from copy import deepcopy
 TOOL_NAMES: tuple[str, ...] = (
     "zoom", "date", "delegate_codex", "delegate_hermes", "web_search", "web_extract", "vision",
     "terminal", "read_file", "write_file", "patch", "search_files",
+    "mcp", "skills", "todo",
 )
 
 # Section 4 defines delegate_hermes as delegate_codex minus model/dir;
@@ -334,6 +335,97 @@ _SCHEMAS = [
                 },
                 "required": [
                     "pattern"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mcp",
+            "description": "List configured MCP servers and their tools, or call one tool over stdio.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "list",
+                            "call"
+                        ]
+                    },
+                    "server": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "The MCP tool name to call."
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "description": "Arguments for the MCP tool."
+                    }
+                },
+                "required": [
+                    "action"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "skills",
+            "description": "List available SKILL.md procedures or read one in full.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "list",
+                            "read"
+                        ]
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "The skill name to read."
+                    }
+                },
+                "required": [
+                    "action"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "todo",
+            "description": "Add, list, complete or drop durable planning items in the chat log.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "add",
+                            "list",
+                            "done",
+                            "drop"
+                        ]
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The item text to add."
+                    },
+                    "id": {
+                        "type": "integer",
+                        "description": "The item id to complete or drop."
+                    }
+                },
+                "required": [
+                    "action"
                 ]
             }
         }

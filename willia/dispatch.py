@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import fs, jobs, toolkit, tools, vision as vision_tool, web
+from . import fs, jobs, mcp, skills, todo, toolkit, tools, vision as vision_tool, web
 from .config import Config
 from .store import Log
 from .tree import Tree
@@ -43,12 +43,33 @@ def dispatch(name: str, arguments: object, *, log, tree, view, root,
         if name not in {
             "zoom", "date", "web_search", "web_extract", "vision", *_DELEGATES,
             "terminal", "read_file", "write_file", "patch", "search_files",
+            "mcp", "skills", "todo",
         }:
             return _error(f"unknown tool: {name}")
         if isinstance(arguments, str):
             arguments = json.loads(arguments)
         if not isinstance(arguments, dict):
             return _error("arguments must be a JSON object")
+        if name == "mcp":
+            if chat is None:
+                return _error("mcp needs an owning chat")
+            return mcp.tool(
+                chat.mcp, arguments.get("action"), server=arguments.get("server"),
+                name=arguments.get("name"), arguments=arguments.get("arguments"),
+            )
+        if name == "skills":
+            config = chat.config if chat is not None else Config()
+            return skills.tool(
+                Path(config.workspace).expanduser(), arguments.get("action"),
+                name=arguments.get("name"),
+            )
+        if name == "todo":
+            if chat is None:
+                return _error("todo needs an owning chat")
+            return todo.tool(
+                chat, arguments.get("action"), text=arguments.get("text"),
+                id=arguments.get("id"),
+            )
         if name in {"terminal", "read_file", "write_file", "patch", "search_files"}:
             config = chat.config if chat is not None else Config()
             if name == "terminal":

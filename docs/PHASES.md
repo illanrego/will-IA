@@ -174,11 +174,11 @@ both were exercised against the live account. What remains is item 2: a real rid
 
 ## P4 — parity tools (post-v1, batched)
 
-**Status (2026-10-13): batch (a) landed** - `terminal`, `read_file`, `write_file`, `patch` and
-`search_files` are in the array (the `todo` tool was deliberately not; it belongs with the
-planning group). The prompt gained a constant, code-owned `TOOL_GROUPS` block so an existing chat
-learns the new tools without anyone editing the file the user owns. Measured: the prefix rewrote
-once and the next call read 95.3% of it from the cache.
+**Status (2026-10-14): batches (a) and (b) landed** - `terminal`, `read_file`, `write_file`,
+`patch`, `search_files`, `mcp`, `skills` and `todo` are in the array. The prompt gained a constant,
+code-owned `TOOL_GROUPS` block so an existing chat learns the new tools without anyone editing the
+file the user owns. Batch (a) measured: the prefix rewrote once and the next call read 95.3% of it
+from the cache.
 
 **The TUI comes next, before the remaining batches** - Illan's ruling, revised 2026-10-14. The
 line-based REPL renders the model's reasoning and its answer identically (`chat._on_delta` ignores the
@@ -186,8 +186,7 @@ stream kind), so the display needs replacing before more tools land into it. Dir
 tool, blue-dominant, closer to the Omarchy home menu than to opencode (`SCOPE.md` question 3).
 
 **Deliverables:** the tool groups in `TOOLS.md` §9, one batch per run, each batch frozen once it
-lands: (a) shell + files + todo, (b) browser, (c) computer use, (d) voice, (e) cron, (f) MCP +
-skills.
+lands: (a) shell + files, (b) MCP + skills + todo, (c) browser, (d) computer use, (e) voice.
 
 **Green per batch**
 - Every new tool round-trips for real, and its result lands in the log per `LOOP.md` §4.
@@ -195,7 +194,7 @@ skills.
   except for the added schemas** — no drift in the existing entries.
 - One measured cache-read number is recorded for the first turn after the batch: the prefix is
   rewritten exactly once, then cached again (`TOOLS.md` §9 constraint 1).
-- Nothing per-turn (skill text, device lists, cron metadata, dates) entered the system prompt or
+- Nothing per-turn (skill text, device lists, dates) entered the system prompt or
   the array.
 
 ## P5 — the modal TUI (interleaved ahead of the remaining P4 batches)

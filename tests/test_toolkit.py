@@ -15,6 +15,7 @@ DOCS = Path(__file__).resolve().parents[1] / "docs"
 NAMES = (
     "zoom", "date", "delegate_codex", "delegate_hermes", "web_search", "web_extract", "vision",
     "terminal", "read_file", "write_file", "patch", "search_files",
+    "mcp", "skills", "todo",
 )
 
 
@@ -98,6 +99,9 @@ def test_schemas_return_fresh_deep_copies():
     ("write_file", ["path", "content"]),
     ("patch", ["path", "old_string", "new_string"]),
     ("search_files", ["pattern"]),
+    ("mcp", ["action"]),
+    ("skills", ["action"]),
+    ("todo", ["action"]),
 ])
 def test_function_schema_shape(name, required):
     toolkit = importlib.import_module("willia.toolkit")

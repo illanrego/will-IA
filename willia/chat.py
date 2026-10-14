@@ -14,7 +14,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from . import jobs, prompts, records, toolkit
+from . import jobs, mcp, prompts, records, toolkit
 from .client import Client, ClientError
 from .compactor import Compactor
 from .dispatch import dispatch
@@ -74,6 +74,7 @@ class Chat:
             self.tools = toolkit.schemas()
             self.session = session_id(self.root)
             self.client = client if client is not None else Client(config, self.session)
+            self.mcp = mcp.Manager(self.root, config.workspace)
             self.compactor = Compactor(self.tree, self._summarize,
                                        node_bytes=config.node_bytes,
                                        max_retries=config.compact_max_retries, view=self.view)
@@ -410,6 +411,7 @@ class Chat:
         return True
 
     def end_turn(self, *, sink=None) -> None:
+        self.mcp.close()
         self.save()
         watchdog_ran = self.check_liveness()
         drain = self._drain
@@ -454,6 +456,7 @@ class Chat:
     def close(self) -> None:
         if self._closed:
             return
+        self.mcp.close()
         drain = self._drain
         if drain is not None and drain.is_alive() and drain is not threading.current_thread():
             drain.join(self.config.model.drain_join_s)

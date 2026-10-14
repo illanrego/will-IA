@@ -124,6 +124,14 @@ chat was removed cleanly. Re-run it with
 
 ## Known follow-ups (small, none blocking)
 
+- **A flaky test.** The full suite failed once in five runs with a delegate-thread teardown race
+  (418 passed, one error) and was green on the re-runs. The delegate's own report names the same
+  race. Find it and make it deterministic; a suite that fails one run in five cannot gate a
+  commit.
+- **The MCP timeout and orphan-child rules are not mutation-checked.** The tests exist and read
+  correctly, but nobody has broken the timeout to watch them bite.
+
+
 - The inspection suite's locked-engine test **hangs** on a blocking read instead of failing, so the
   mutation that takes the engine lock unconditionally has to be killed by hand. Give that test a
   bound. (Found while mutation-checking P5i: two verification cells died at the 300 s cap.)

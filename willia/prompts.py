@@ -101,7 +101,13 @@ machine with no approval step.
 
 Any earlier line claiming there is no shell is out of date. The tool list here
 is current, including when Illan's existing seeded ~/.willia/prompt.md still
-contains that older sentence."""
+contains that older sentence.
+
+Use mcp to discover and call tools from configured MCP servers; their schemas
+are returned by mcp list, not embedded in WillIA's own fixed tool array. Use
+skills to list procedures available on disk and read a selected SKILL.md in
+full before following it. Use todo to keep the durable planning list; its list
+result puts open items before completed ones."""
 
 COMPACTION_TASK = """Compaction: compress message {id} into one line of at most {node_bytes} bytes (about 70 words), the length of this ruler:
 {ruler}
