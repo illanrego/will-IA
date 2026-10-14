@@ -18,6 +18,8 @@ ALT_ON = "\x1b[?1049h"
 ALT_OFF = "\x1b[?1049l"
 CURSOR_HIDE = "\x1b[?25l"
 CURSOR_SHOW = "\x1b[?25h"
+SYNC_ON = "\x1b[?2026h"
+SYNC_OFF = "\x1b[?2026l"
 CLEAR = "\x1b[H\x1b[2J"
 HOME = "\x1b[H"
 ERASE_BELOW = "\x1b[J"
@@ -177,10 +179,14 @@ class Screen:
         return self.read_key()
 
     def draw(self, lines, theme="blue") -> None:
+        lines = tuple(lines)
+        if not lines:
+            return
         # Home + erase-below, never a full clear: a clear-then-repaint flashes on some
         # terminals even when it arrives in one write, and rows are padded to the width so
-        # nothing stale survives underneath.
-        output = [HOME, ERASE_BELOW, sgr(theme, "bg", self.depth, background=True)]
+        # nothing stale survives underneath. Synchronized updates keep the erase and rewrite
+        # from becoming separately visible; terminals that do not implement 2026 ignore it.
+        output = [SYNC_ON, HOME, ERASE_BELOW, sgr(theme, "bg", self.depth, background=True)]
         for index, line in enumerate(lines):
             if index:
                 output.append("\r\n")
@@ -193,7 +199,7 @@ class Screen:
             else:
                 token = getattr(line, "style", "body")
                 output.extend((sgr(theme, token, self.depth), getattr(line, "text", str(line))))
-        output.append(RESET)
+        output.extend((RESET, SYNC_OFF))
         self._write("".join(output))
 
     def copy(self, text: str) -> None:

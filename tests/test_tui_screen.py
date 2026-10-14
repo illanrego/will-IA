@@ -7,7 +7,9 @@ from willia.chat import Chat
 from willia.client import Reply
 from willia.config import Config
 from willia.tui.clipboard import copy_text
-from willia.tui.screen import ALT_OFF, ALT_ON, CURSOR_HIDE, CURSOR_SHOW, Screen, decode_key
+from willia.tui.screen import (
+    ALT_OFF, ALT_ON, CURSOR_HIDE, CURSOR_SHOW, SYNC_OFF, SYNC_ON, Screen, decode_key,
+)
 from willia.tui.theme import ansi_colour
 
 
@@ -36,6 +38,26 @@ def test_alt_screen_enter_leave_and_exception_restore():
     assert ALT_ON + CURSOR_HIDE in output
     assert ALT_OFF + CURSOR_SHOW in output
     assert output.index(ALT_ON) < output.index(ALT_OFF)
+    assert output.count(CURSOR_SHOW) == 1
+
+
+def test_every_nonempty_paint_is_synchronised_and_empty_paint_writes_nothing():
+    writes = []
+    screen = Screen(input_fd=-1, writer=writes.append, depth=24)
+
+    screen.draw(["one", "two"])
+
+    assert len(writes) == 1
+    assert writes[0].startswith(SYNC_ON)
+    assert writes[0].endswith(SYNC_OFF)
+    assert writes[0].count(SYNC_ON) == writes[0].count(SYNC_OFF) == 1
+    assert CURSOR_SHOW not in writes[0]
+
+    before = "".join(writes)
+    screen.draw([])
+    after = "".join(writes)
+    assert after == before
+    assert after.count(SYNC_ON) == after.count(SYNC_OFF) == 1
 
 
 @pytest.mark.parametrize(("raw", "key"), [

@@ -88,6 +88,7 @@ class App:
         self.scroll_offset = 0
         self.transcript_cursor = 0
         self.buffer = ""
+        self.caret = 0
         self.history: list[str] = []
         self.history_index: int | None = None
         self._history_draft = ""
@@ -235,6 +236,7 @@ class App:
         self.history.append(text)
         self.history_index = None
         self.buffer = ""
+        self.caret = 0
         self.mode = Mode.NORMAL
         self.scroll_offset = 0
         self.transcript_cursor = 0
@@ -275,8 +277,8 @@ class App:
     def _body_size(self) -> tuple[int, int, int]:
         width, height = self.screen.size()
         centre = max(1, width - self._rail_width())
-        input_rows = 1 if self.mode == Mode.INSERT or self.command is not None else 0
-        return width, max(0, height - 1 - input_rows), centre
+        field_rows = len(self._input_field_lines(centre, max(0, height - 1)))
+        return width, max(0, height - 1 - field_rows), centre
 
     def _transcript(self, centre: int) -> list[Line]:
         """The durable transcript, wrapped once per change and then sliced."""
@@ -351,17 +353,26 @@ class App:
             if index >= len(self.history):
                 self.history_index = None
                 self.buffer = self._history_draft
+                self.caret = len(self.buffer)
                 return
             self.history_index = max(0, index)
         self.buffer = self.history[self.history_index]
+        self.caret = len(self.buffer)
 
     def _delete_word(self) -> None:
-        end = len(self.buffer)
-        while end and self.buffer[end - 1].isspace():
-            end -= 1
-        while end and not self.buffer[end - 1].isspace():
-            end -= 1
-        self.buffer = self.buffer[:end]
+        caret = max(0, min(self.caret, len(self.buffer)))
+        start = caret
+        while start and self.buffer[start - 1].isspace():
+            start -= 1
+        while start and not self.buffer[start - 1].isspace():
+            start -= 1
+        self.buffer = self.buffer[:start] + self.buffer[caret:]
+        self.caret = start
+
+    def _insert(self, text: str) -> None:
+        caret = max(0, min(self.caret, len(self.buffer)))
+        self.buffer = self.buffer[:caret] + text + self.buffer[caret:]
+        self.caret = caret + len(text)
 
     # ---------------------------------------------------------------- commands and keys
 
@@ -922,19 +933,23 @@ class App:
             elif key == "ENTER":
                 self._send()
             elif key == "CTRL_J":
-                self.buffer += "\n"
+                self._insert("\n")
             elif key == "CTRL_U":
                 self.buffer = ""
+                self.caret = 0
             elif key == "CTRL_W":
                 self._delete_word()
             elif key == "BACKSPACE":
-                self.buffer = self.buffer[:-1]
+                caret = max(0, min(self.caret, len(self.buffer)))
+                if caret:
+                    self.buffer = self.buffer[:caret - 1] + self.buffer[caret:]
+                    self.caret = caret - 1
             elif key == "UP":
                 self._history(-1)
             elif key == "DOWN":
                 self._history(1)
             elif len(key) == 1 and key.isprintable():
-                self.buffer += key
+                self._insert(key)
             return self.running
 
         if self._pending_ctrl_w:
@@ -943,6 +958,7 @@ class App:
 
         if key == "i":
             self.mode = Mode.INSERT
+            self.caret = len(self.buffer)
             self.visual_anchor = None
         elif key == "?":
             self._open_panel("help")
@@ -1010,6 +1026,119 @@ class App:
         return self.running
 
     # ---------------------------------------------------------------- drawing
+
+    def _input_visible(self) -> bool:
+        return self.mode == Mode.INSERT or self.busy or self.command is not None
+
+    def _input_rows(self, width: int) -> tuple[list[Line], int]:
+        """Lay out the editable value and its painted caret in transcript-width rows."""
+        value = self.command if self.command is not None else self.buffer
+        caret = len(value) if self.command is not None else max(
+            0, min(self.caret, len(value)))
+        focused = self.mode == Mode.INSERT or self.command is not None
+        marker_style = "agent" if focused else "dim"
+        prefix = "  ❯ "
+        prefix_width = cell_width(prefix)
+
+        if width <= prefix_width:
+            marker = fit("  ❯", width)
+            return [Line(marker, marker_style, (Span(marker, marker_style),))], 0
+
+        content_width = max(1, width - prefix_width)
+        # A cluster keeps zero-width combining marks attached to their base character. The
+        # renderer's measured cell width remains the only source of column truth.
+        clusters: list[list] = []
+        for index, char in enumerate(value):
+            if (char != "\n" and cell_width(char) == 0 and clusters
+                    and clusters[-1][2] != "\n"):
+                clusters[-1][1] = index + 1
+                clusters[-1][2] += char
+                continue
+            clusters.append([index, index + 1, char, cell_width(char)])
+
+        rows: list[list[list]] = [[]]
+        positions: dict[int, tuple[int, int]] = {0: (0, 0)}
+        cells = 0
+        for start, end, text, size in clusters:
+            row_index = len(rows) - 1
+            if text == "\n":
+                positions[start] = (row_index, cells)
+                rows.append([])
+                cells = 0
+                positions[end] = (len(rows) - 1, 0)
+                continue
+            if cells and cells + size > content_width:
+                rows.append([])
+                cells = 0
+                row_index = len(rows) - 1
+            for position in range(start, end):
+                positions[position] = (row_index, cells)
+            rows[-1].append([start, end, text, size])
+            cells += size
+            positions[end] = (row_index, cells)
+
+        caret_row, caret_column = positions.get(caret, (len(rows) - 1, cells))
+        if focused and caret == len(value) and caret_column >= content_width:
+            rows.append([])
+            caret_row, caret_column = len(rows) - 1, 0
+
+        lines: list[Line] = []
+        for row_index, units in enumerate(rows):
+            if row_index == 0:
+                spans: list[Span] = [
+                    Span("  ", "dim"), Span("❯", marker_style), Span(" ", "dim")]
+            else:
+                spans = [Span(" " * prefix_width, "dim")]
+            caret_drawn = False
+            for start, end, text, size in units:
+                under_caret = focused and start <= caret < end
+                if under_caret and size > 0:
+                    spans.append(Span(text, "bg", "you"))
+                    caret_drawn = True
+                else:
+                    spans.append(Span(text, "you"))
+            if focused and row_index == caret_row and not caret_drawn:
+                spans.append(Span("█", "you"))
+            text = "".join(span.text for span in spans)
+            deficit = width - cell_width(text)
+            if deficit > 0:
+                spans.append(Span(" " * deficit, "you"))
+                text += " " * deficit
+            lines.append(Line(text, "you", tuple(spans)))
+        return lines, caret_row
+
+    def _input_field_lines(self, width: int, max_rows: int) -> list[Line]:
+        if not self._input_visible() or max_rows <= 0:
+            return []
+        content, caret_row = self._input_rows(width)
+        rule = Line("─" * max(0, width), "rule")
+        if max_rows == 1:
+            return [rule]
+        capacity = max_rows - 1
+        if len(content) <= capacity:
+            shown = content
+        else:
+            anchor = caret_row if self.mode == Mode.INSERT or self.command is not None else len(content) - 1
+            start = max(0, min(anchor - capacity + 1, len(content) - capacity))
+            shown = content[start:start + capacity]
+        return [rule, *shown]
+
+    def _field_frame_row(self, line: Line, width: int) -> Line:
+        right_spans = line.spans or (Span(line.text, line.style),)
+        if self.rail_visible:
+            spans = (
+                Span(" " * (RAIL_WIDTH - 1), "body", "panel"),
+                Span("│", "rule"),
+                *right_spans,
+            )
+        else:
+            spans = right_spans
+        text = "".join(span.text for span in spans)
+        deficit = width - cell_width(text)
+        if deficit > 0:
+            spans = (*spans, Span(" " * deficit, "body"))
+            text += " " * deficit
+        return Line(text, line.style, tuple(spans))
 
     def _help_frame(self) -> list[Line]:
         width, height = self.screen.size()
@@ -1151,6 +1280,7 @@ class App:
             return self._help_frame()
         width, height = self.screen.size()
         _full_width, body_height, centre = self._body_size()
+        field = self._input_field_lines(centre, max(0, height - 1))
         durable = self._transcript(centre)
         # The in-flight tail is rebuilt each frame: it is small and it is what is moving.
         flight = render((), self.in_flight, centre, -1, self.theme) if self.in_flight else []
@@ -1191,10 +1321,7 @@ class App:
                 text += " " * deficit
             rows.append(Line(text, "body", spans))
 
-        if self.mode == Mode.INSERT or self.command is not None:
-            prompt = (self.command if self.command is not None
-                      else "> " + self.buffer.split("\n")[-1])
-            rows.append(Line(fit(prompt, width, pad=True), "you"))
+        rows.extend(self._field_frame_row(line, width) for line in field)
         rows.append(Line(fit(self._status(), width, pad=True), self._status_style()))
         return rows[:height]
 

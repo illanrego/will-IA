@@ -12,7 +12,7 @@ from willia.config import Config
 from willia.tui import build_rail_facts
 from willia.tui.app import App, Mode, Pane
 from willia.tui.render import cell_width
-from willia.tui.screen import Screen
+from willia.tui.screen import SYNC_OFF, SYNC_ON, Screen
 
 RAIL_LABEL_CELLS = 9
 
@@ -72,6 +72,101 @@ def test_insert_mode_editing_send_and_escape():
     app.join_turn()
     assert chat.sent == ["one "]
     assert app.mode == Mode.NORMAL
+
+
+def _painted_caret(lines):
+    for line in lines:
+        column = 0
+        for span in line.spans:
+            if span.background == "you" and span.style == "bg":
+                return column, span.text, "reverse"
+            if span.text == "█":
+                return column, span.text, "solid"
+            column += cell_width(span.text)
+    return None
+
+
+def test_compose_field_is_bounded_aligned_wrapped_and_absent_in_normal_mode():
+    app = App(FakeChat(), FakeScreen())
+    assert app._input_field_lines(app._body_size()[2], 7) == []
+
+    app.handle_key("i")
+    centre = app._body_size()[2]
+    short = app._input_field_lines(centre, 7)
+    assert short[0].text == "─" * centre
+    marker = next(span for span in short[1].spans if span.text == "❯")
+    assert marker.style == "agent"
+
+    app.buffer = "long input " * 20
+    app.caret = len(app.buffer)
+    long = app._input_field_lines(centre, 7)
+    assert len(long) > len(short)
+    assert all(cell_width(line.text) == centre for line in long)
+    frame = app._frame()
+    assert len(frame) == FakeScreen().size()[1]
+    assert frame[-1].text.startswith("INSERT")
+
+    app.mode = Mode.NORMAL
+    app.busy = False
+    assert app._input_field_lines(centre, 7) == []
+
+
+def test_streaming_field_stays_visible_with_a_dim_unfocused_marker():
+    app = App(FakeChat(), FakeScreen())
+    app.busy = True
+    field = app._input_field_lines(app._body_size()[2], 7)
+    marker = next(span for span in field[1].spans if span.text == "❯")
+    assert marker.style == "dim"
+
+
+@pytest.mark.parametrize(("value", "caret", "expected_column", "under"), [
+    ("abcd", 0, 4, "a"),
+    ("abcd", 2, 6, "c"),
+    ("ab界c", 3, 8, "c"),
+    ("e\u0301x", 2, 5, "x"),
+])
+def test_painted_caret_uses_cell_width_for_wide_and_combining_text(
+        value, caret, expected_column, under):
+    app = App(FakeChat(), FakeScreen())
+    app.mode = Mode.INSERT
+    app.buffer = value
+    app.caret = caret
+
+    painted = _painted_caret(app._input_rows(20)[0])
+
+    assert painted == (expected_column, under, "reverse")
+
+
+def test_end_caret_is_solid_and_tracks_backspace_and_ctrl_w():
+    app = App(FakeChat(), FakeScreen())
+    press(app, "i", "o", "n", "e", " ", "t", "w", "o")
+    assert _painted_caret(app._input_rows(20)[0]) == (11, "█", "solid")
+
+    app.handle_key("BACKSPACE")
+    assert app.buffer == "one tw"
+    assert app.caret == 6
+    assert _painted_caret(app._input_rows(20)[0]) == (10, "█", "solid")
+
+    app.handle_key("CTRL_W")
+    assert app.buffer == "one "
+    assert app.caret == 4
+    assert _painted_caret(app._input_rows(20)[0]) == (8, "█", "solid")
+
+    press(app, "x", "y")
+    assert app.caret == len(app.buffer)
+    assert _painted_caret(app._input_rows(20)[0]) == (10, "█", "solid")
+
+
+def test_zero_width_terminal_never_draws_a_software_caret_or_crashes():
+    class ZeroScreen(FakeScreen):
+        def size(self):
+            return 0, 3
+
+    app = App(FakeChat(), ZeroScreen())
+    app.handle_key("i")
+    frame = app._frame()
+    assert len(frame) == 3
+    assert all(_painted_caret([line]) is None for line in frame)
 
 
 def test_ctrl_u_and_history_up_down():
@@ -303,6 +398,26 @@ def test_a_burst_of_stream_deltas_is_coalesced_into_few_draws():
     for _ in range(5):
         app.redraw()
     assert len(draws) == before, "an unchanged frame was repainted, which is what flashed"
+
+
+def test_unchanged_redraw_writes_no_sync_block_or_other_bytes():
+    writes = []
+
+    class WriterScreen(Screen):
+        resized = False
+
+        def size(self):
+            return 50, 8
+
+    screen = WriterScreen(input_fd=-1, writer=writes.append, depth=24)
+    app = App(FakeChat(), screen)
+    app.redraw(force=True)
+    assert "".join(writes).startswith(SYNC_ON)
+    assert "".join(writes).endswith(SYNC_OFF)
+
+    writes.clear()
+    app.redraw()
+    assert "".join(writes) == ""
 
 
 def test_a_broken_draw_is_visible_and_not_fatal():
