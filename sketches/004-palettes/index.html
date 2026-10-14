@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>will.I.A. — 001, three palettes</title>
+<style>
+  /* palettes live on .screen, so the switcher inherits them too */
+  /* ---------- BLUE (the one you picked) ---------- */
+  :root, #t-blue:checked ~ .screen {
+    --bg: #05070E; --panel: #080C16;
+    --rule: rgba(127,212,255,.10); --rule-strong: rgba(127,212,255,.22);
+    --body: #DCE6F5; --dim: #4A5A75; --reason: #43536D;
+    --agent: #7FD4FF; --data: #7FD4FF;
+    --amber: #FFB454; --red: #FF5A5F; --ok: #6FE3C0;
+    --you: #F2F7FF; --strong: #F4F9FF;
+  }
+  /* ---------- GREEN (phosphor) ---------- */
+  #t-green:checked ~ .screen {
+    --bg: #04090A; --panel: #071211;
+    --rule: rgba(111,227,176,.10); --rule-strong: rgba(111,227,176,.24);
+    --body: #DDEFE6; --dim: #48605A; --reason: #3F564F;
+    --agent: #6FE3B0; --data: #6FE3B0;
+    --amber: #E8C56A; --red: #FF6B70; --ok: #9AE6FF;
+    --you: #F3FBF6; --strong: #F5FCF8;
+  }
+  /* ---------- MIXED (blue voice, green vitals) ---------- */
+  #t-mixed:checked ~ .screen {
+    --bg: #05070E; --panel: #080C16;
+    --rule: rgba(127,212,255,.12); --rule-strong: rgba(127,212,255,.24);
+    --body: #DCE6F5; --dim: #4A5A75; --reason: #43536D;
+    --agent: #7FD4FF; --data: #6FE3B0;
+    --amber: #FFB454; --red: #FF5A5F; --ok: #6FE3B0;
+    --you: #F2F7FF; --strong: #F4F9FF;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #05070E; }
+  body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+  input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+
+  .screen {
+    height: 100vh; display: flex; flex-direction: column;
+    background: var(--bg); color: var(--body);
+    font-size: 13.5px; line-height: 1.65; -webkit-font-smoothing: antialiased;
+    transition: background .18s linear;
+  }
+
+  .switch { flex: none; display: flex; align-items: center; padding: 10px 22px; border-bottom: 1px solid var(--rule); }
+  .switch .lbl { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; margin-right: 14px; }
+  .switch label {
+    color: var(--dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 3px 12px; border: 1px solid var(--rule); border-right-width: 0; cursor: pointer;
+  }
+  .switch label:last-of-type { border-right-width: 1px; }
+  .switch label:hover { color: var(--body); }
+  #t-blue:checked ~ .screen .switch label[for=t-blue],
+  #t-green:checked ~ .screen .switch label[for=t-green],
+  #t-mixed:checked ~ .screen .switch label[for=t-mixed] { color: var(--bg); background: var(--agent); border-color: var(--agent); }
+
+  .app { flex: 1; display: grid; grid-template-columns: 27ch 1fr; grid-template-rows: 1fr auto; overflow: hidden; }
+
+  .rail { padding: 22px 18px 18px 22px; border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 18px; overflow: hidden; }
+  .k { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; }
+  .levels { display: flex; flex-direction: column; gap: 2px; }
+  .lvl { display: grid; grid-template-columns: 3ch 1fr 4ch; gap: 8px; align-items: center; }
+  .lvl .i { color: var(--dim); font-size: 11px; }
+  .lvl .bar { color: var(--data); opacity: .55; font-size: 11px; letter-spacing: -1px; }
+  .lvl.hot .bar { opacity: 1; }
+  .lvl .n { color: var(--dim); font-size: 11px; text-align: right; }
+  .total { color: var(--data); opacity: .8; font-size: 11px; }
+  .gauge { color: var(--dim); font-size: 11px; }
+  .gauge .track { color: var(--rule-strong); }
+  .gauge .mark { color: var(--data); }
+  .state { color: var(--ok); font-size: 11px; }
+
+  .stage { padding: 26px 30px; overflow-y: auto; }
+  .who { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; }
+  .say.you { color: var(--you); margin: 4px 0 22px; }
+  .think { border-left: 1px solid var(--rule-strong); padding-left: 14px; margin: 0 0 20px; }
+  .think summary { list-style: none; cursor: pointer; }
+  .think summary::-webkit-details-marker { display: none; }
+  .think .body { color: var(--reason); font-size: 12.5px; }
+  .think .body p { margin: 6px 0; }
+  .answer { margin: 0 0 22px; }
+  .answer strong { color: var(--strong); font-weight: 500; }
+
+  .packets { display: flex; flex-direction: column; gap: 4px; margin: 0 0 22px; }
+  .pkt { display: grid; grid-template-columns: 2ch 9ch 1fr 3ch; gap: 10px; align-items: baseline; }
+  .pkt .arrow, .pkt .tool { color: var(--agent); }
+  .pkt .args { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pkt .code { text-align: right; color: var(--ok); }
+  .out { margin: 0 0 22px; padding-left: 21px; }
+  .out summary { color: var(--dim); cursor: pointer; list-style: none; font-size: 12px; }
+  .out summary::-webkit-details-marker { display: none; }
+  .out summary:hover { color: var(--agent); }
+  .out pre { color: var(--dim); font-size: 11.5px; margin: 8px 0 0; white-space: pre-wrap; }
+  .work { display: flex; gap: 10px; margin: 0 0 22px; }
+  .work .tag { color: var(--amber); }
+  .work .text { color: var(--dim); }
+
+  .status { border-top: 1px solid var(--rule); padding: 10px 22px; display: flex; gap: 22px; align-items: baseline; color: var(--dim); font-size: 11px; background: var(--panel); }
+  .status b { color: var(--body); font-weight: 400; }
+  .status .num { color: var(--data); }
+  .status .grow { flex: 1; }
+  kbd { color: var(--agent); border: 1px solid var(--rule-strong); padding: 0 4px; }
+  .palette { color: var(--dim); }
+  .palette span { color: var(--agent); }
+</style>
+</head>
+<body>
+<input type="radio" name="theme" id="t-blue" checked>
+<input type="radio" name="theme" id="t-green">
+<input type="radio" name="theme" id="t-mixed">
+
+<div class="screen">
+  <div class="switch">
+    <span class="lbl">palette</span>
+    <label for="t-blue">blue</label>
+    <label for="t-green">green</label>
+    <label for="t-mixed">mixed</label>
+  </div>
+
+  <div class="app">
+    <aside class="rail">
+      <div>
+        <div class="k">memory</div>
+        <div class="levels">
+          <div class="lvl"><span class="i">l0</span><span class="bar">██████████████████████████</span><span class="n">162</span></div>
+          <div class="lvl"><span class="i">l1</span><span class="bar">█████████████</span><span class="n">81</span></div>
+          <div class="lvl"><span class="i">l2</span><span class="bar">███████</span><span class="n">40</span></div>
+          <div class="lvl"><span class="i">l3</span><span class="bar">███</span><span class="n">20</span></div>
+          <div class="lvl"><span class="i">l4</span><span class="bar">██</span><span class="n">10</span></div>
+          <div class="lvl"><span class="i">l5</span><span class="bar">█</span><span class="n">5</span></div>
+          <div class="lvl"><span class="i">l6</span><span class="bar">▏</span><span class="n">2</span></div>
+          <div class="lvl hot"><span class="i">l7</span><span class="bar">▏</span><span class="n">1</span></div>
+        </div>
+        <div class="total">321 nodes</div>
+      </div>
+      <div>
+        <div class="k">view</div>
+        <div class="gauge">76,809 B</div>
+        <div class="gauge"><span class="track">└</span> 64K <span class="track">────────</span><span class="mark">●</span><span class="track">───────────────</span> 128K</div>
+        <div class="state">settled · nothing unbuilt</div>
+      </div>
+      <div><div class="k">queue</div><div class="gauge"><span class="mark">●</span> <span class="mark">●</span> <span class="track">·</span> <span class="track">·</span></div></div>
+      <div><div class="k">here</div><div class="gauge">162 (newest)</div></div>
+    </aside>
+
+    <main class="stage">
+      <div class="who">illan</div>
+      <div class="say you">the posting CLI broke after the batch — check it and fix it.</div>
+
+      <details class="think" open>
+        <summary class="who">reasoning <span style="opacity:.7">— click to fold</span></summary>
+        <div class="body">
+          <p>Posting automation lives at ~/Documents/coding/post-automation. The batch changed what the shell tools can do, not the repo, so a break here is more likely a stale invocation than a real regression.</p>
+          <p>Path is in the view from the notes. Check the repo state first, then run its own suite before I touch anything.</p>
+        </div>
+      </details>
+
+      <div class="who">willia</div>
+      <div class="answer">
+        Its own suite is green and the working tree is clean, so nothing here regressed — <strong>the break is in how the job was launched, not in the repo.</strong> I've delegated the flag-order fix and I'll report.
+      </div>
+
+      <div class="packets">
+        <div class="pkt"><span class="arrow">→</span><span class="tool">terminal</span><span class="args">git -C ~/Documents/coding/post-automation status --porcelain</span><span class="code">0</span></div>
+        <div class="pkt"><span class="arrow">→</span><span class="tool">terminal</span><span class="args">uv run pytest -q</span><span class="code">0</span></div>
+        <div class="pkt"><span class="arrow">→</span><span class="tool">search_files</span><span class="args">--glob *.toml "entry_points"</span><span class="code">0</span></div>
+      </div>
+
+      <details class="out">
+        <summary>3 results · show output</summary>
+        <pre>post-automation/pyproject.toml:9: [project.scripts]
+post-automation/pyproject.toml:10: post = "posting.cli:main"</pre>
+      </details>
+
+      <div class="work">
+        <span class="tag">[Fix-CLI]</span>
+        <span class="text">flag order was reversed in cli.py; patch applied, suite green, no files outside the repo touched.</span>
+      </div>
+
+      <div class="palette"><span>/</span> zoom · date · usage · jobs · view · quit</div>
+    </main>
+
+    <footer class="status">
+      <span>session <b>8e2621d5</b></span>
+      <span>cache <b class="num">95.3%</b></span>
+      <span>jobs <b>1</b></span>
+      <span class="grow"></span>
+      <span>opencode <b class="num">3%</b> / 12% / 23%</span>
+      <span>codex <b class="num">12%</b> / 18%</span>
+      <span><kbd>^C</kbd></span>
+    </footer>
+  </div>
+</div>
+</body>
+</html>
