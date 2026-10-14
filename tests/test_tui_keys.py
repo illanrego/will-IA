@@ -201,6 +201,31 @@ def test_line_record_and_visual_range_yanks_use_log_text():
     assert app.notice == "yanked 10 bytes"
 
 
+def test_merged_stream_yanks_keep_each_log_record_and_visual_continuity():
+    class CopyScreen(FakeScreen):
+        def __init__(self):
+            self.copied = []
+
+        def copy(self, text):
+            self.copied.append(text)
+
+    chunks = [f"chunk-{index:02d}".ljust(20, ".") for index in range(6)]
+    chat = FakeChat()
+    chat.log.records = [
+        Record(index, "will", text, len(text), "2026-10-14T00:00:00Z")
+        for index, text in enumerate(chunks)
+    ]
+    screen = CopyScreen()
+    app = App(chat, screen)
+
+    app.handle_key("y")
+    assert screen.copied[-1] == chunks[-1]
+    app.handle_key("Y")
+    assert screen.copied[-1] == chunks[-1]
+    press(app, "v", "k", "y")
+    assert screen.copied[-1] == chunks[-2] + chunks[-1]
+
+
 def test_help_overlay_scrolls_and_closes_without_touching_transcript_scroll():
     app = App(FakeChat(), FakeScreen())
     app.handle_key("k")

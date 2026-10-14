@@ -9,7 +9,7 @@ import willia.tui as tui
 from willia.store import Record
 from willia.tree import Line as TreeLine
 from willia.tui import build_rail_facts
-from willia.tui.render import cell_width, render, viewport, wrap
+from willia.tui.render import Span, cell_width, render, viewport, wrap
 from willia.tui.theme import PALETTES, TOKENS
 
 
@@ -24,22 +24,29 @@ def record(kind, text, i=0):
 def test_plain_record_kinds(kind, text, style):
     lines = render([record(kind, text)], [], 40, 20, "blue")
     label = "ILLAN" if kind == "user" else "WILLIA"
-    label_style = "you" if kind == "user" else "body"
     assert [(line.text, line.style) for line in lines] == [
-        ("─" * 40, "rule"), (label, label_style), (text, style),
+        ("─" * 40, "rule"), (label, "dim"), (text, style),
     ]
 
 
-def test_every_record_is_its_own_block_without_blank_separator_lines():
-    """Even adjacent same-kind chunks are individually framed because each is a log record."""
-    split = [record("user", f"part-{i}", i) for i in range(3)]
+def test_consecutive_stream_records_are_one_continuous_block():
+    split = [record("will", f"part-{i}", i) for i in range(6)]
     lines = render(split, [], 40, -1, "blue")
     assert [line.text for line in lines] == [
-        "─" * 40, "ILLAN", "part-0",
-        "─" * 40, "ILLAN", "part-1",
-        "─" * 40, "ILLAN", "part-2",
+        "─" * 40, "WILLIA", "part-0part-1part-2part-3part-4part-5",
     ]
+    assert sum(line.style == "rule" for line in lines) == 1
     assert "" not in [line.text for line in lines]
+
+
+def test_consecutive_tool_records_remain_separate_blocks():
+    tools = [record("tool", json.dumps({"name": name, "arguments": {}}), i)
+             for i, name in enumerate(("first", "second"))]
+    lines = render(tools, [], 40, -1, "blue")
+    assert [line.text for line in lines if line.text.startswith("TOOL")] == [
+        "TOOL · first", "TOOL · second",
+    ]
+    assert sum(line.style == "rule" for line in lines) == 2
 
 
 def test_imported_memory_is_hidden_unless_asked_for():
@@ -82,8 +89,11 @@ def test_work_tool_and_echo_records_have_the_approved_styles_and_shapes():
     assert lines[4].text == "TOOL · terminal"
     assert lines[4].style == "agent"
     assert lines[5].text == 'command "pwd"'
-    assert [line.text for line in lines[-4:]] == ["one", "two", "three", "… 2 more lines"]
+    assert [line.text for line in lines[-4:]] == [
+        "│ one", "│ two", "│ three", "│ … 2 more lines",
+    ]
     assert all(line.style == "dim" for line in lines[-4:])
+    assert all(line.spans[0] == Span("│ ", "rule") for line in lines[-4:])
 
 
 def test_a_long_tool_argument_stays_one_line():
@@ -104,8 +114,8 @@ def test_a_long_tool_argument_stays_one_line():
 ])
 def test_clip_counts_are_exact_and_grammatical(text, trailer):
     lines = render([record("echo", text)], [], 80, -1, "blue")
-    assert [line.text for line in lines[2:5]] == ["one", "two", "three"]
-    assert lines[5].text == trailer
+    assert [line.text for line in lines[2:5]] == ["│ one", "│ two", "│ three"]
+    assert lines[5].text == f"│ {trailer}"
 
 
 def test_clipped_work_links_an_existing_report_from_the_delegate_result(tmp_path):
@@ -131,9 +141,58 @@ def test_width_height_and_scroll_offsets_are_bounded():
     records = [record("will", f"line-{i}", i) for i in range(6)]
     newest = render(records, [], 6, 2, "blue")
     all_lines = render(records, [], 6, -1, "blue")
-    assert [line.text for line in newest] == ["WILLIA", "line-5"]
-    assert [line.text for line in viewport(all_lines, 2, 2)] == ["line-4", "─" * 6]
+    assert [line.text for line in newest] == ["line-4", "line-5"]
+    assert [line.text for line in viewport(all_lines, 2, 2)] == ["line-2", "line-3"]
     assert viewport(all_lines, 2, 99) == all_lines[:2]
+
+
+def test_005_transcript_tones_and_answer_markdown_are_applied():
+    tool = json.dumps({"name": "terminal", "arguments": {"command": "pwd"}})
+    lines = render([
+        record("user", "question", 0),
+        record("will", "plain **bold words** and `value`", 1),
+        record("reasoning", "consider", 2),
+        record("tool", tool, 3),
+        record("echo", "result", 4),
+        record("work", "[Fix] repaired it", 5),
+        record("note", "reference", 6),
+    ], [], 80, -1, "blue", show_notes=True)
+    labels = {line.text: line for line in lines if line.text in {
+        "ILLAN", "WILLIA", "THINK", "TOOL · terminal", "RESULT",
+        "WORK · [Fix]", "NOTE",
+    }}
+    assert {name: labels[name].style for name in ("ILLAN", "WILLIA", "THINK", "RESULT", "NOTE")} == {
+        name: "dim" for name in ("ILLAN", "WILLIA", "THINK", "RESULT", "NOTE")
+    }
+    assert labels["TOOL · terminal"].style == "agent"
+    assert labels["WORK · [Fix]"].style == "amber"
+    assert next(line for line in lines if line.text == "question").style == "you"
+    answer = next(line for line in lines if line.text == "plain bold words and value")
+    assert answer.style == "body"
+    assert [(span.text, span.style) for span in answer.spans] == [
+        ("plain ", "body"), ("bold words", "strong"), (" and ", "body"),
+        ("value", "data"),
+    ]
+    result = next(line for line in lines if line.text == "│ result")
+    assert [(span.text, span.style) for span in result.spans] == [
+        ("│ ", "rule"), ("result", "dim"),
+    ]
+
+
+def test_answer_markdown_wraps_spans_but_keeps_raw_source_text():
+    raw = "before **strong across the wrap** and `data` after"
+    lines = render([record("will", raw)], [], 12, -1, "blue")[2:]
+    assert "".join(line.text for line in lines) == (
+        "before strong across the wrap and data after"
+    )
+    assert any(span.style == "strong" for line in lines for span in line.spans)
+    assert any(span.style == "data" for line in lines for span in line.spans)
+    assert all(line.source_text == raw for line in lines)
+
+
+def test_unpaired_answer_markers_stay_literal():
+    lines = render([record("will", "a lone * and `tick")], [], 80, -1, "blue")
+    assert lines[2].text == "a lone * and `tick"
 
 
 def test_in_flight_reasoning_and_content_are_visually_distinct():

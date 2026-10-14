@@ -392,17 +392,25 @@ class App:
             return None
         lines = self._all_transcript_lines()
         lo, hi = sorted((self.visual_anchor, current))
-        selected = []
+        selected: list[str] = []
         previous = object()
         for line in lines[lo:hi + 1]:
+            if line.sources:
+                for source in line.sources:
+                    identity = (source.record_id, source.index, source.text)
+                    if identity == previous:
+                        continue
+                    selected.append((source.joiner if selected else "") + source.text)
+                    previous = identity
+                continue
             if line.record_id is None or line.source_text is None:
                 continue
             identity = (line.record_id, line.source_index, line.source_text)
             if identity == previous:
                 continue
-            selected.append(line.source_text)
+            selected.append(("\n" if selected else "") + line.source_text)
             previous = identity
-        return "\n".join(selected)
+        return "".join(selected)
 
     def _yank(self, whole: bool = False) -> None:
         line = self._focused_transcript_line()
@@ -414,7 +422,18 @@ class App:
         elif whole:
             text = self._whole_record_text(line.record_id)
         else:
-            text = line.source_text
+            if line.sources:
+                chunks = []
+                previous = object()
+                for source in line.sources:
+                    identity = (source.record_id, source.index, source.text)
+                    if identity == previous:
+                        continue
+                    chunks.append((source.joiner if chunks else "") + source.text)
+                    previous = identity
+                text = "".join(chunks)
+            else:
+                text = line.source_text
         self._copy(text)
 
     def _help_content(self, width: int | None = None) -> list[str]:
