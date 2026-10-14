@@ -93,5 +93,8 @@ or Hermes, and non-coding tools implemented natively.
    batches**. Reason for the reversal: the REPL renders the model's reasoning and its answer as one
    indistinguishable stream (`chat._on_delta` ignores the stream kind), which is unusable day to day.
    Direction: a cyberpunk AI tool, blue-dominant, closer to the Omarchy home menu than to opencode.
+   **All three palettes ship** - blue, green and mixed are switchable in the TUI (his ruling, 2026-10-14),
+   and the left panel carries the machine's data including both accounts' usage **and their reset
+   countdowns**, which arrive with the percentages and so cost no extra call.
 4. Native v1 set: web + vision is enough to start, or anything else already missing?
 5. ~~Codex delegation default~~ **SETTLED:** `gpt-5.6-sol` at high effort for most tasks; `gpt-6-astra` at high only for the tricky or precision-critical parts (where a late catch would cost more than the model does). (Corrected 2026-10-13: this line said `gpt-6-sol`, which does not exist and 400s instantly. The account's catalog is `gpt-5.5`, `gpt-5.6-sol`, `gpt-6-astra`; the delegate command is `docs/DELEGATES.md` section 2.)

@@ -115,10 +115,7 @@
   .answer { margin: 0 0 20px; }
   .answer strong { color: var(--strong); font-weight: 500; }
 
-  .cols { display: grid; grid-template-columns: 2ch 11ch 1fr 5ch 7ch; gap: 10px; padding: 0 0 5px; border-bottom: 1px solid var(--rule); }
-  .cols span { color: var(--dim); font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; }
-  .cols .r { text-align: right; }
-  .packets { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 18px; }
+  .packets { display: flex; flex-direction: column; gap: 3px; margin: 12px 0 18px; }
   .pkt { display: grid; grid-template-columns: 2ch 11ch 1fr 5ch 7ch; gap: 10px; align-items: baseline; }
   .pkt .arrow, .pkt .tool { color: var(--agent); }
   .pkt .args { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -190,8 +187,10 @@
         <div class="fact tip r" data-tip="The chat's session id. The relay pins one upstream backend per id, which is what keeps the prompt cache warm. It is generated once and never regenerated."><span class="l">session</span><span class="v">8e2621d5</span></div>
         <div class="fact tip r" data-tip="Share of this turn's prompt that came from the cache instead of being re-sent: 2,944 of 3,089 tokens. This number is the whole design working — it is why the prompt and tool array never change."><span class="l">cache</span><span class="v num">95.3%</span></div>
         <div class="fact tip r" data-tip="Codex delegates running in the background right now. Their reports arrive on their own, as work records; nothing here waits for them."><span class="l">jobs</span><span class="v">1</span></div>
-        <div class="fact tip r" data-tip="OpenCode Go, your chat route: rolling (5h) / weekly / monthly percent of the plan used."><span class="l">go</span><span class="v num">3 / 12 / 23%</span></div>
-        <div class="fact tip r" data-tip="The Codex plan: 5-hour and 7-day windows used, and whether the expensive model is available to delegate to right now."><span class="l">codex</span><span class="v num">12 / 18% <small>astra</small></span></div>
+        <div class="fact tip r" data-tip="OpenCode Go, your chat route: rolling (5h) / weekly / monthly percent of the plan used. Live from GET /usage — the same call that already feeds this line."><span class="l">go</span><span class="v num">3 / 14 / 24%</span></div>
+        <div class="fact tip r" data-tip="How long until each of those three windows resets. The relay already sends the timestamps with the percentages, so this costs no extra call."><span class="l">resets</span><span class="v">3h44m / 4d17h / 24d</span></div>
+        <div class="fact tip r" data-tip="The Codex plan's 5-hour and 7-day windows. It also reports how many banked reset credits you hold — 3 right now, none applicable while a window is not exhausted."><span class="l">codex</span><span class="v num">12 / 18%</span></div>
+        <div class="fact tip r" data-tip="When the Codex windows reset. It comes in the same response as the percentages, so no extra fetch. gpt-6-astra reads available right now."><span class="l">resets</span><span class="v">3h51m / 6d9h</span></div>
         <div class="fact tip r" data-tip="The model doing the talking. Compactions use the same one — a different model would forfeit the shared cache prefix."><span class="l">model</span><span class="v">ds-v4.1-flash</span></div>
       </div>
 
@@ -213,13 +212,10 @@
       <div class="who tip" data-tip="The agent. Its prose lines are the only ones logged as 'will'.">willia</div>
       <div class="answer tip" data-tip="The reply. Summaries keep little of tool output, so the lines that matter have to be said here — that is why this sentence names the actual cause.">Its own suite is green and the working tree is clean, so nothing here regressed — <strong>the break is in how the job was launched, not in the repo.</strong> I've delegated the flag-order fix and I'll report.</div>
 
-      <div class="cols">
-        <span></span><span class="tip" data-tip="Which native tool the model called. Each call is one tool record in the log; its result is one echo record.">tool</span><span class="tip" data-tip="The arguments exactly as the model wrote them.">command / arguments</span><span class="r tip" data-tip="Exit code — 0 means the command succeeded. It is NOT a token count: token spend is measured per model call, not per tool, so per-tool tokens do not exist to show.">exit</span><span class="r tip" data-tip="How long the tool took, wall clock.">time</span>
-      </div>
       <div class="packets">
-        <div class="pkt tip" data-tip="Runs a real command in the workspace. Its whole output lands in the log, clipped head+tail past 30,000 characters."><span class="arrow">→</span><span class="tool">terminal</span><span class="args">git -C ~/Documents/coding/post-automation status --porcelain</span><span class="exit">0</span><span class="ms">12ms</span></div>
-        <div class="pkt tip" data-tip="Clean tree: nothing modified, so the break is not in the repo's working state."><span class="arrow">→</span><span class="tool">terminal</span><span class="args">uv run pytest -q</span><span class="exit">0</span><span class="ms">3.4s</span></div>
-        <div class="pkt tip" data-tip="Searches file contents by regex. Three matches, all in one file."><span class="arrow">→</span><span class="tool">search_files</span><span class="args">--glob *.toml "entry_points"</span><span class="exit">0</span><span class="ms">41ms</span></div>
+        <div class="pkt tip" data-tip="Runs a real command in the workspace. Its whole output lands in the log, clipped head+tail past 30,000 characters."><span class="arrow">→</span><span class="tool">terminal</span><span class="args">git -C ~/Documents/coding/post-automation status --porcelain</span><span class="exit tip" data-tip="exit 0 — the command succeeded. This is an exit code, not a token count: usage is reported per model call, so per-tool tokens do not exist to show.">0</span><span class="ms tip" data-tip="Wall-clock time for the tool.">12ms</span></div>
+        <div class="pkt tip" data-tip="Clean tree: nothing modified, so the break is not in the repo's working state."><span class="arrow">→</span><span class="tool">terminal</span><span class="args">uv run pytest -q</span><span class="exit tip" data-tip="exit 0 — the suite is green.">0</span><span class="ms tip" data-tip="Wall-clock time for the tool.">3.4s</span></div>
+        <div class="pkt tip" data-tip="Searches file contents by regex. Three matches, all in one file."><span class="arrow">→</span><span class="tool">search_files</span><span class="args">--glob *.toml "entry_points"</span><span class="exit tip" data-tip="exit 0 — three matches, all in one file.">0</span><span class="ms tip" data-tip="Wall-clock time for the tool.">41ms</span></div>
       </div>
 
       <details class="out">
