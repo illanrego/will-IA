@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>will.I.A. — 005: data in the rail, hover for meaning</title>
+<style>
+  /* ---------- BLUE (tuned: calmer than the terminal, more visible than the first sketches) ---------- */
+  :root, #t-blue:checked ~ .screen {
+    --bg: #06090F; --panel: #0A101B;
+    --rule: rgba(150,190,230,.16); --rule-strong: rgba(150,205,245,.34);
+    --body: #DDE7F5; --dim: #7E8DA6; --reason: #8E9DB6;
+    --agent: #8FDCFF; --data: #8FDCFF;
+    --amber: #FFC069; --red: #FF6E73; --ok: #7FEBC8;
+    --you: #EDF3FB; --strong: #F2F7FE;
+  }
+  /* ---------- GREEN (phosphor) ---------- */
+  #t-green:checked ~ .screen {
+    --bg: #050A09; --panel: #081412;
+    --rule: rgba(130,220,180,.16); --rule-strong: rgba(130,235,190,.34);
+    --body: #DCEFE6; --dim: #7B948B; --reason: #8AA69C;
+    --agent: #7BEBBE; --data: #7BEBBE;
+    --amber: #EFCC77; --red: #FF6E73; --ok: #9FD4FF;
+    --you: #EDF3FB; --strong: #F2FBF6;
+  }
+  /* ---------- MIXED (blue voice, green vitals) ---------- */
+  #t-mixed:checked ~ .screen {
+    --bg: #06090F; --panel: #0A101B;
+    --rule: rgba(150,190,230,.17); --rule-strong: rgba(150,205,245,.34);
+    --body: #DDE7F5; --dim: #7E8DA6; --reason: #8E9DB6;
+    --agent: #8FDCFF; --data: #7BEBBE;
+    --amber: #FFC069; --red: #FF6E73; --ok: #7BEBBE;
+    --you: #EDF3FB; --strong: #F2F7FE;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #06090F; }
+  body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+  input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+
+  .screen {
+    height: 100vh; display: flex; flex-direction: column; overflow: visible;
+    background: var(--bg); color: var(--body);
+    font-size: 13.5px; line-height: 1.62; -webkit-font-smoothing: antialiased;
+    transition: background .18s linear;
+  }
+
+  /* ---------- switcher ---------- */
+  .switch { flex: none; display: flex; align-items: center; padding: 9px 20px; border-bottom: 1px solid var(--rule); }
+  .switch .lbl { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; margin-right: 14px; }
+  .switch label {
+    color: var(--dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 3px 12px; border: 1px solid var(--rule); border-right-width: 0; cursor: pointer;
+  }
+  .switch label:last-of-type { border-right-width: 1px; }
+  .switch label:hover { color: var(--body); }
+  #t-blue:checked ~ .screen .switch label[for=t-blue],
+  #t-green:checked ~ .screen .switch label[for=t-green],
+  #t-mixed:checked ~ .screen .switch label[for=t-mixed] { color: var(--bg); background: var(--agent); border-color: var(--agent); }
+  .switch .hint { margin-left: auto; color: var(--dim); font-size: 10.5px; }
+
+  /* ---------- tooltips: hover anything with a dotted underline ---------- */
+  .tip { position: relative; }
+  .tip:hover { background: rgba(150,205,245,.07); }
+  .tip:hover::after {
+    content: attr(data-tip);
+    position: absolute; left: 0; top: calc(100% + 7px); z-index: 30;
+    width: 42ch; padding: 8px 11px;
+    background: #0B111D; border: 1px solid var(--rule-strong); border-left: 2px solid var(--agent);
+    color: var(--body); font-size: 11.5px; line-height: 1.5; letter-spacing: 0;
+    text-transform: none; white-space: normal; pointer-events: none;
+  }
+  .tip.r:hover::after { left: calc(100% + 10px); top: -2px; }
+  .tip.up:hover::after { top: auto; bottom: calc(100% + 7px); }
+
+  .app { flex: 1; display: grid; grid-template-columns: 30ch 1fr; overflow: visible; }
+
+  /* ---------- the rail: everything the machine knows, one panel ---------- */
+  .rail { padding: 20px 16px 16px 20px; border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 15px; }
+  .k { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; }
+  .sep { border-top: 1px solid var(--rule); margin: 2px 0 0; }
+
+  .levels { display: flex; flex-direction: column; gap: 2px; }
+  .lvl { display: grid; grid-template-columns: 3ch 1fr 4ch; gap: 8px; align-items: center; }
+  .lvl .i { color: var(--dim); font-size: 11px; }
+  .lvl .bar { color: var(--data); opacity: .62; font-size: 11px; letter-spacing: -1px; }
+  .lvl.hot .bar { opacity: 1; }
+  .lvl .n { color: var(--dim); font-size: 11px; text-align: right; }
+  .total { color: var(--data); opacity: .85; font-size: 11px; }
+
+  .gauge { color: var(--dim); font-size: 11px; }
+  .gauge .track { color: var(--rule-strong); }
+  .gauge .mark { color: var(--data); }
+  .state { color: var(--ok); font-size: 11px; }
+
+  /* the data group: labels left, values right, one column each */
+  .facts { display: flex; flex-direction: column; gap: 3px; }
+  .fact { display: grid; grid-template-columns: 9ch 1fr; gap: 8px; font-size: 11.5px; }
+  .fact .l { color: var(--dim); }
+  .fact .v { color: var(--body); text-align: right; }
+  .fact .v.num { color: var(--data); }
+  .fact .v small { color: var(--dim); }
+
+  .palette { color: var(--dim); font-size: 11px; margin-top: auto; }
+  .palette span { color: var(--agent); }
+
+  /* ---------- the turn ---------- */
+  .stage { padding: 24px 30px; overflow: visible; }
+  .who { color: var(--dim); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; }
+  .say.you { color: var(--you); margin: 4px 0 20px; }
+  .think { border-left: 1px solid var(--rule-strong); padding-left: 14px; margin: 0 0 18px; }
+  .think summary { list-style: none; cursor: pointer; }
+  .think summary::-webkit-details-marker { display: none; }
+  .think .body { color: var(--reason); font-size: 12.5px; }
+  .think .body p { margin: 6px 0; }
+  .answer { margin: 0 0 20px; }
+  .answer strong { color: var(--strong); font-weight: 500; }
+
+  .cols { display: grid; grid-template-columns: 2ch 11ch 1fr 5ch 7ch; gap: 10px; padding: 0 0 5px; border-bottom: 1px solid var(--rule); }
+  .cols span { color: var(--dim); font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; }
+  .cols .r { text-align: right; }
+  .packets { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 18px; }
+  .pkt { display: grid; grid-template-columns: 2ch 11ch 1fr 5ch 7ch; gap: 10px; align-items: baseline; }
+  .pkt .arrow, .pkt .tool { color: var(--agent); }
+  .pkt .args { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pkt .exit { text-align: right; color: var(--ok); }
+  .pkt .ms { text-align: right; color: var(--dim); }
+
+  .out { margin: 0 0 20px; padding-left: 23px; }
+  .out summary { color: var(--dim); cursor: pointer; list-style: none; font-size: 12px; }
+  .out summary::-webkit-details-marker { display: none; }
+  .out summary:hover { color: var(--agent); }
+  .out pre { color: var(--dim); font-size: 11.5px; margin: 8px 0 0; white-space: pre-wrap; border-left: 1px solid var(--rule); padding-left: 12px; }
+
+  .work { display: flex; gap: 10px; margin: 0 0 20px; }
+  .work .tag { color: var(--amber); }
+  .work .text { color: var(--dim); }
+</style>
+</head>
+<body>
+<input type="radio" name="theme" id="t-blue" checked>
+<input type="radio" name="theme" id="t-green">
+<input type="radio" name="theme" id="t-mixed">
+
+<div class="screen">
+  <div class="switch">
+    <span class="lbl">palette</span>
+    <label for="t-blue">blue</label>
+    <label for="t-green">green</label>
+    <label for="t-mixed">mixed</label>
+    <span class="hint">hover any underlined thing for what it means</span>
+  </div>
+
+  <div class="app">
+    <aside class="rail">
+      <div>
+        <div class="k tip r" data-tip="The memory tree. Every message becomes one line; adjacent lines merge in pairs, again and again, so each level up covers twice as much as the one below.">memory</div>
+        <div class="levels">
+          <div class="lvl tip r" data-tip="One line per message. 162 messages, 162 lines. This is what the view reads from first."><span class="i">l0</span><span class="bar">██████████████████████████</span><span class="n">162</span></div>
+          <div class="lvl"><span class="i">l1</span><span class="bar">█████████████</span><span class="n">81</span></div>
+          <div class="lvl"><span class="i">l2</span><span class="bar">███████</span><span class="n">40</span></div>
+          <div class="lvl"><span class="i">l3</span><span class="bar">███</span><span class="n">20</span></div>
+          <div class="lvl"><span class="i">l4</span><span class="bar">██</span><span class="n">10</span></div>
+          <div class="lvl"><span class="i">l5</span><span class="bar">█</span><span class="n">5</span></div>
+          <div class="lvl"><span class="i">l6</span><span class="bar">▏</span><span class="n">2</span></div>
+          <div class="lvl hot tip r" data-tip="The youngest level: one single line standing in for the whole chat so far. Zoom descends from here — that is the only way the model navigates its memory."><span class="i">l7</span><span class="bar">▏</span><span class="n">1</span></div>
+        </div>
+        <div class="total tip r" data-tip="162 + 81 + 40 + 20 + 10 + 5 + 2 + 1. Every one of these is a summary line that was written once by a model and never rewritten.">321 nodes</div>
+      </div>
+
+      <div>
+        <div class="k tip r" data-tip="What the model actually reads on every turn: the whole chat as one-liners, oldest first, capped at 128 KB. It is rendered BEFORE your message is logged.">view</div>
+        <div class="gauge tip r" data-tip="Current size of the view in bytes. It grows as lines are added until it passes 128 KB, then compactions trim it back to 64 KB — the sawtooth.">76,809 B</div>
+        <div class="gauge tip r" data-tip="Where the view sits between the 64 KB floor and the 128 KB ceiling. About 20% up the band right now."><span class="track">└</span> 64K <span class="track">────────</span><span class="mark">●</span><span class="track">───────────────</span> 128K</div>
+        <div class="state tip r" data-tip="Every line the view points at has been summarized, and no compaction is waiting. If this said '2 unbuilt', the next turn would pay for those summaries first.">settled · nothing unbuilt</div>
+      </div>
+
+      <div>
+        <div class="k tip r" data-tip="Compactions waiting for a model call. This runs in the background while you talk; two dots here are nodes whose parents are ready to merge.">queue</div>
+        <div class="gauge"><span class="mark">●</span> <span class="mark">●</span> <span class="track">·</span> <span class="track">·</span></div>
+      </div>
+
+      <div>
+        <div class="k tip r" data-tip="The newest record id. The next thing you type becomes 163.">here</div>
+        <div class="gauge">162 (newest)</div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="facts">
+        <div class="fact tip r" data-tip="The chat's session id. The relay pins one upstream backend per id, which is what keeps the prompt cache warm. It is generated once and never regenerated."><span class="l">session</span><span class="v">8e2621d5</span></div>
+        <div class="fact tip r" data-tip="Share of this turn's prompt that came from the cache instead of being re-sent: 2,944 of 3,089 tokens. This number is the whole design working — it is why the prompt and tool array never change."><span class="l">cache</span><span class="v num">95.3%</span></div>
+        <div class="fact tip r" data-tip="Codex delegates running in the background right now. Their reports arrive on their own, as work records; nothing here waits for them."><span class="l">jobs</span><span class="v">1</span></div>
+        <div class="fact tip r" data-tip="OpenCode Go, your chat route: rolling (5h) / weekly / monthly percent of the plan used."><span class="l">go</span><span class="v num">3 / 12 / 23%</span></div>
+        <div class="fact tip r" data-tip="The Codex plan: 5-hour and 7-day windows used, and whether the expensive model is available to delegate to right now."><span class="l">codex</span><span class="v num">12 / 18% <small>astra</small></span></div>
+        <div class="fact tip r" data-tip="The model doing the talking. Compactions use the same one — a different model would forfeit the shared cache prefix."><span class="l">model</span><span class="v">ds-v4.1-flash</span></div>
+      </div>
+
+      <div class="palette tip up" data-tip="/zoom 40 8 opens a span of memory · /date 162 its timestamp · /usage both accounts · /jobs running delegates · /view the rendered view · /quit">/<span> </span>zoom · date · usage · jobs · view · quit</div>
+    </aside>
+
+    <main class="stage">
+      <div class="who tip" data-tip="You. Logged as a user record — the kind the compaction rubric ranks highest.">illan</div>
+      <div class="say you">the posting CLI broke after the batch — check it and fix it.</div>
+
+      <details class="think" open>
+        <summary class="who tip" data-tip="The model's thinking. Shown to you, and deliberately NEVER written to the memory — the log holds only what was said.">reasoning — click to fold</summary>
+        <div class="body">
+          <p>Posting automation lives at ~/Documents/coding/post-automation. The batch changed what the shell tools can do, not the repo, so a break here is more likely a stale invocation than a real regression.</p>
+          <p>Path is in the view from the notes. Check the repo state first, then run its own suite before I touch anything.</p>
+        </div>
+      </details>
+
+      <div class="who tip" data-tip="The agent. Its prose lines are the only ones logged as 'will'.">willia</div>
+      <div class="answer tip" data-tip="The reply. Summaries keep little of tool output, so the lines that matter have to be said here — that is why this sentence names the actual cause.">Its own suite is green and the working tree is clean, so nothing here regressed — <strong>the break is in how the job was launched, not in the repo.</strong> I've delegated the flag-order fix and I'll report.</div>
+
+      <div class="cols">
+        <span></span><span class="tip" data-tip="Which native tool the model called. Each call is one tool record in the log; its result is one echo record.">tool</span><span class="tip" data-tip="The arguments exactly as the model wrote them.">command / arguments</span><span class="r tip" data-tip="Exit code — 0 means the command succeeded. It is NOT a token count: token spend is measured per model call, not per tool, so per-tool tokens do not exist to show.">exit</span><span class="r tip" data-tip="How long the tool took, wall clock.">time</span>
+      </div>
+      <div class="packets">
+        <div class="pkt tip" data-tip="Runs a real command in the workspace. Its whole output lands in the log, clipped head+tail past 30,000 characters."><span class="arrow">→</span><span class="tool">terminal</span><span class="args">git -C ~/Documents/coding/post-automation status --porcelain</span><span class="exit">0</span><span class="ms">12ms</span></div>
+        <div class="pkt tip" data-tip="Clean tree: nothing modified, so the break is not in the repo's working state."><span class="arrow">→</span><span class="tool">terminal</span><span class="args">uv run pytest -q</span><span class="exit">0</span><span class="ms">3.4s</span></div>
+        <div class="pkt tip" data-tip="Searches file contents by regex. Three matches, all in one file."><span class="arrow">→</span><span class="tool">search_files</span><span class="args">--glob *.toml "entry_points"</span><span class="exit">0</span><span class="ms">41ms</span></div>
+      </div>
+
+      <details class="out">
+        <summary class="tip" data-tip="Tool output is collapsed here because summaries keep so little of it. Click to see what it actually said.">3 results · show output</summary>
+        <pre>post-automation/pyproject.toml:9: [project.scripts]
+post-automation/pyproject.toml:10: post = "posting.cli:main"</pre>
+      </details>
+
+      <div class="work tip" data-tip="A delegate's report, arriving on its own as one work record — the only thing a background job puts in your chat.">
+        <span class="tag">[Fix-CLI]</span>
+        <span class="text">flag order was reversed in cli.py; patch applied, suite green, no files outside the repo touched.</span>
+      </div>
+    </main>
+  </div>
+</div>
+</body>
+</html>
