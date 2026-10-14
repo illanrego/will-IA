@@ -126,9 +126,9 @@ def main() -> int:
         # which the app is not reading keys. Let it settle before driving the next keystrokes.
         drain(fd, 4.0, out)
 
-        repaints = out.count(b"\x1b[H\x1b[2J")
-        print(f"--- full repaints so far: {repaints} for {len(out)} bytes "
-              f"(a repaint per stream delta would show up here)")
+        clears = out.count(b"\x1b[H\x1b[2J")
+        print(f"--- full-screen clears so far: {clears} (0 = painting in place, which is what "
+              f"stopped the flashing)")
 
         # 3. normal mode, scroll a little, then quit
         os.write(fd, b"\x1b")
@@ -136,6 +136,26 @@ def main() -> int:
         for keys in (b"gg", b"jjj", b"G", b"k"):
             os.write(fd, keys)
             drain(fd, 0.3, out)
+        # An idle screen must write nothing: repainting on a timer is what made it flash.
+        # Let the post-turn compaction finish first, or the changes are real ones.
+        print("--- letting the tree settle, then watching an idle screen")
+        drain(fd, 8.0, out)
+        idle_start = len(out)
+        drain(fd, 3.0, out)
+        idle_bytes = len(out) - idle_start
+        print(f"--- bytes while idle for 3s: {idle_bytes} (must be 0)")
+        if idle_bytes:
+            failures.append(f"an idle screen wrote {idle_bytes} bytes")
+        # A key that changes the frame, because a no-op key (j at the bottom) must paint nothing.
+        os.write(fd, b"i")
+        drain(fd, 1.0, out)
+        after_key = len(out) - idle_start - idle_bytes
+        print(f"--- after a keypress that changes the frame: {after_key} bytes (must be > 0)")
+        if after_key <= 0:
+            failures.append("a keypress that changes the frame did not repaint")
+        os.write(fd, b"\x1b")
+        drain(fd, 0.3, out)
+
         print("--- scroll keys consumed; sending :q")
         exited = False
         for attempt in range(2):

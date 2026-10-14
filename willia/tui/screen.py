@@ -18,6 +18,8 @@ ALT_OFF = "\x1b[?1049l"
 CURSOR_HIDE = "\x1b[?25l"
 CURSOR_SHOW = "\x1b[?25h"
 CLEAR = "\x1b[H\x1b[2J"
+HOME = "\x1b[H"
+ERASE_BELOW = "\x1b[J"
 RESET = "\x1b[0m"
 
 _CSI = {
@@ -174,7 +176,10 @@ class Screen:
         return self.read_key()
 
     def draw(self, lines, theme="blue") -> None:
-        output = [CLEAR, sgr(theme, "bg", self.depth, background=True)]
+        # Home + erase-below, never a full clear: a clear-then-repaint flashes on some
+        # terminals even when it arrives in one write, and rows are padded to the width so
+        # nothing stale survives underneath.
+        output = [HOME, ERASE_BELOW, sgr(theme, "bg", self.depth, background=True)]
         for index, line in enumerate(lines):
             if index:
                 output.append("\r\n")

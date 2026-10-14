@@ -132,11 +132,15 @@ def _arguments(value: Any) -> str:
 
 def _tool_line(name: str, arguments: Any, width: int,
                elapsed_ms: float | None = None) -> list[Line]:
+    """One line, always: the arguments are clipped, not wrapped."""
     suffix = "" if elapsed_ms is None else f"  {elapsed_ms:.0f}ms"
-    return _wrap_runs((
-        Span("→ ", "agent"), Span(name, "agent"),
-        Span(" " + _arguments(arguments) + suffix, "dim"),
-    ), width)
+    prefix = 2 + cell_width(name) + 1
+    available = max(1, width - prefix - cell_width(suffix))
+    shown = fit(_arguments(arguments), available, ellipsis="…", pad=False)
+    text = f"→ {name} {shown}{suffix}"
+    spans = (Span("→ ", "agent"), Span(name, "agent"),
+             Span(" " + shown + suffix, "dim"))
+    return [Line(text, "agent", spans)]
 
 
 ECHO_LINES = 2
@@ -174,8 +178,12 @@ def record_lines(record: Any, width: int, *, show_notes: bool = False,
     if kind == "work":
         if text.startswith("[") and "]" in text:
             end = text.index("]") + 1
-            return _wrap_runs((Span(text[:end], "amber"), Span(text[end:], "dim")), width)
-        return wrap(text, width, "dim")
+            tag, body = text[:end], text[end:]
+            shown = fit(body.lstrip(), max(1, width - cell_width(tag) - 1),
+                        ellipsis="…", pad=False)
+            spans = (Span(tag, "amber"), Span(" " + shown, "dim"))
+            return [Line(tag + " " + shown, "amber", spans)]
+        return [Line(fit(text, width, ellipsis="…", pad=False), "dim")]
     if kind == "tool":
         try:
             packet = json.loads(text)

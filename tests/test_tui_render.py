@@ -58,6 +58,17 @@ def test_work_tool_and_echo_records_have_the_approved_shapes():
     assert all(line.style == "dim" for line in lines[-3:])
 
 
+def test_a_long_tool_argument_stays_one_line():
+    """A delegate brief runs to hundreds of words; the packet must not flood the screen."""
+    brief = "do the thing and prove it " * 40
+    tool = json.dumps({"name": "delegate_codex", "arguments": {"task": brief}})
+    lines = render([record("tool", tool)], [], 60, -1, "blue")
+    assert len(lines) == 1, f"a tool call rendered as {len(lines)} lines"
+    assert cell_width(lines[0].text) <= 60
+    assert lines[0].text.endswith("…")
+    assert lines[0].text.startswith("→ delegate_codex ")
+
+
 def test_wrap_uses_terminal_cells_for_double_width_characters():
     lines = wrap("ab界cd", 4, "body")
     assert [line.text for line in lines] == ["ab界", "cd"]

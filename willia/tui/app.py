@@ -13,12 +13,16 @@ Three things here exist because the first version was slow, and each is load-bea
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
 from enum import Enum
 
-from .render import Line, Span, fit, render, viewport
+from .render import Line, Span, cell_width, fit, render, viewport
+
+
+log = logging.getLogger(__name__)
 
 
 class Mode(str, Enum):
@@ -59,6 +63,11 @@ class App:
         self.running = True
         self.busy = False
         self.compacting = False
+        self.rail_visible = True
+        self._busy_samples = 0
+        self._pending_draw = False
+        self._frame_key: tuple | None = None
+        self.draw_error = ""
         self._turn: threading.Thread | None = None
         self._events: queue.SimpleQueue = queue.SimpleQueue()
         self._last_draw: float | None = None
@@ -80,21 +89,32 @@ class App:
         except Exception:
             pass
 
-    def _refresh_rail(self, *, blocking: bool = False) -> None:
+    def _refresh_rail(self, *, blocking: bool = False) -> bool:
+        """Re-read the rail; True when the numbers changed, so an idle frame writes nothing."""
         if self.rail_source is None:
-            return
+            return False
         self._last_rail = time.monotonic()
         try:
             facts = self.rail_source(blocking=blocking)
         except TypeError:
             facts = self.rail_source()
         except Exception:
-            return
+            return False
         if facts is None:
-            self.compacting = True
-            return
-        self.compacting = False
+            self._busy_samples += 1
+            # Hysteresis: an engine that frees and retakes the lock between samples must not make
+            # the status line flap, because every flap costs a repaint.
+            if self._busy_samples >= 2 and not self.compacting:
+                self.compacting = True
+                return True
+            return False
+        self._busy_samples = 0
+        if self.compacting:
+            self.compacting = False
+            return True
+        changed = list(facts) != self.rail_facts
         self.rail_facts = list(facts)
+        return changed
 
     def _rail_due(self) -> bool:
         return time.monotonic() - self._last_rail >= _RAIL_INTERVAL_S
@@ -174,9 +194,12 @@ class App:
 
     # ---------------------------------------------------------------- geometry
 
+    def _rail_width(self) -> int:
+        return RAIL_WIDTH if self.rail_visible else 0
+
     def _body_size(self) -> tuple[int, int, int]:
         width, height = self.screen.size()
-        centre = max(1, width - RAIL_WIDTH)
+        centre = max(1, width - self._rail_width())
         input_rows = 1 if self.mode == Mode.INSERT or self.command is not None else 0
         return width, max(0, height - 1 - input_rows), centre
 
@@ -276,6 +299,8 @@ class App:
 
         if key in {"i", "ENTER"}:
             self.mode = Mode.INSERT
+        elif key == "CTRL_B":
+            self.rail_visible = not self.rail_visible
         elif key == ":":
             self.command = ":"
         elif key in {"j", "l", "DOWN", "RIGHT"}:
@@ -329,12 +354,22 @@ class App:
         rail = self._rail_lines(body_height)
         rows: list[Line] = []
         for index in range(body_height):
-            left = rail[index] if index < len(rail) else Line(" " * (RAIL_WIDTH - 1), "panel")
             right = transcript[index] if index < len(transcript) else Line("", "body")
-            left_spans = left.spans or (Span(left.text, left.style),)
             right_spans = right.spans or (Span(right.text, right.style),)
-            spans = (*left_spans, Span("│", "rule"), *right_spans)
-            rows.append(Line("".join(span.text for span in spans), "body", spans))
+            if self.rail_visible:
+                left = rail[index] if index < len(rail) else Line(" " * (RAIL_WIDTH - 1), "panel")
+                left_spans = left.spans or (Span(left.text, left.style),)
+                spans = (*left_spans, Span("│", "rule"), *right_spans)
+            else:
+                spans = right_spans
+            text = "".join(span.text for span in spans)
+            # Pad to the full width: the repaint homes instead of clearing, so nothing stale may
+            # survive underneath a shorter row.
+            deficit = width - cell_width(text)
+            if deficit > 0:
+                spans = (*spans, Span(" " * deficit, "body"))
+                text += " " * deficit
+            rows.append(Line(text, "body", spans))
 
         if self.mode == Mode.INSERT or self.command is not None:
             prompt = (self.command if self.command is not None
@@ -344,6 +379,8 @@ class App:
         return rows[:height]
 
     def _status(self) -> str:
+        if self.draw_error:
+            return f"DRAW FAILED · {self.draw_error}"
         if self.notice:
             return self.notice
         state = "compacting" if self.compacting else ("streaming" if self.busy else "transcript")
@@ -351,6 +388,8 @@ class App:
         return f"{self.mode.value} · {state}" + (f" · {prefix}" if prefix else "")
 
     def _status_style(self) -> str:
+        if self.draw_error:
+            return "red"
         if self.notice:
             return "strong"
         if self.busy or self.compacting:
@@ -358,36 +397,50 @@ class App:
         return "dim"
 
     def _redraw_soon(self) -> None:
+        """One paint per tick at most, and remember that a paint is still owed."""
         now = time.monotonic()
         if self._last_draw is None or now - self._last_draw >= _REDRAW_INTERVAL_S:
             self.redraw()
+        else:
+            self._pending_draw = True
 
-    def redraw(self) -> None:
+    def redraw(self, *, force: bool = False) -> None:
+        """Paint only when the frame differs from the last one: an idle TUI must write nothing."""
         try:
-            self.screen.draw(self._frame(), self.theme)
+            lines = self._frame()
+            key = tuple((line.text, line.style) for line in lines)
             self.screen.resized = False
+            if not force and key == self._frame_key:
+                self._pending_draw = False
+                return
+            self.screen.draw(lines, self.theme)
+            self._frame_key = key
+            self._pending_draw = False
             self._last_draw = time.monotonic()
-        except Exception:
-            pass
+            self.draw_error = ""
+        except Exception as exc:
+            # A broken draw must not kill the chat, and it must not be silent either: a swallowed
+            # NameError once left the screen blank with nothing anywhere. It shows in the status.
+            self.draw_error = f"{type(exc).__name__}: {exc}"
+            log.warning("TUI draw failed: %s", exc)
 
     # ---------------------------------------------------------------- main loop
 
     def run(self) -> None:
         with self.screen:
-            self.redraw()
+            self.redraw(force=True)
             try:
                 while self.running:
-                    if self._drain_events():
-                        self._redraw_soon()
-                    elif self._rail_due():
-                        self._refresh_rail()
-                        self._redraw_soon()
+                    changed = self._drain_events()
+                    if self._rail_due() and self._refresh_rail():
+                        changed = True
                     poll = getattr(self.screen, "poll_key", None)
                     key = poll(0.05) if poll is not None else self.screen.read_key()
-                    if key is None:
-                        continue
-                    self.handle_key(key)
-                    self.redraw()
+                    if key is not None:
+                        self.handle_key(key)
+                        changed = True
+                    if changed or self._pending_draw:
+                        self._redraw_soon()
             finally:
                 self.running = False
                 self.join_turn(5.0)

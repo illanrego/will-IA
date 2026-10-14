@@ -77,7 +77,8 @@ def build_rail_facts(chat, windows=None, *, now=None, blocking=True):
     gauge = "─" * marker + "●" + "─" * (12 - marker)
 
     entries = usage.read(usage.usage_file(chat.root))
-    latest = entries[-1] if entries else {}
+    turns = [entry for entry in entries if entry.get("kind") == "turn"]
+    latest = turns[-1] if turns else {}
     input_tokens = latest.get("input_tokens", 0)
     cached_tokens = latest.get("cache_read_tokens", 0)
     cache = (f"{cached_tokens / input_tokens * 100:.1f}%"

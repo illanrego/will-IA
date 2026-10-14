@@ -62,11 +62,14 @@ def main() -> int:
         seen.extend(chunk)
         if alt_on is None and b"\x1b[?1049h" in seen:
             alt_on = time.monotonic() - started
-        if first_frame is None and len(seen) > 400 and b"\x1b[H\x1b[2J" in seen:
+        painted = (b"\x1b[H\x1b[J" in seen or b"\x1b[H\x1b[2J" in seen)
+        if first_frame is None and len(seen) > 400 and painted:
             first_frame = time.monotonic() - started
         if first_frame is not None:
             break
 
+    # (The idle-silence check lives in p5a-tui-proof.py, on a chat that has settled: a copy of
+    # the live chat is still compacting, so its rail changes for real.)
     failures = []
     if alt_on is None:
         failures.append("the alternate buffer was never entered")

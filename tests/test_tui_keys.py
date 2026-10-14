@@ -121,13 +121,30 @@ def test_a_burst_of_stream_deltas_is_coalesced_into_few_draws():
             draws.append(len(lines))
 
     app = App(FakeChat(), CountingScreen())
-    assert draws == []
+    app.redraw(force=True)
+    assert len(draws) == 1, "the first frame must paint"
     for index in range(500):
         app("delta", kind="content", text=str(index))
-    burst = len(draws)
+    burst = len(draws) - 1
     assert burst < 10, f"500 deltas painted {burst} times"
-    app("end", usage={})
-    assert len(draws) == burst + 1, "the end of a turn must always paint"
+    app.redraw()                      # the coalesced paint lands
+    before = len(draws)
+    for _ in range(5):
+        app.redraw()
+    assert len(draws) == before, "an unchanged frame was repainted, which is what flashed"
+
+
+def test_a_broken_draw_is_visible_and_not_fatal():
+    """A draw error must not kill the chat, and must not be silent either."""
+    class BrokenScreen(FakeScreen):
+        def draw(self, lines, theme):
+            raise RuntimeError("no terminal today")
+
+    app = App(FakeChat(), BrokenScreen())
+    app.redraw(force=True)
+    assert app.running is True
+    assert "no terminal today" in app.draw_error
+    assert "DRAW FAILED" in app._status()
 
 
 class SlowChat(FakeChat):
@@ -172,6 +189,18 @@ def test_notes_are_hidden_by_default_and_visible_with_the_command():
     press(app, ":", "n", "o", "t", "e", "s", "ENTER")
     assert app.show_notes is True
     assert [line.text for line in app._transcript(20)] == ["note · memory"]
+
+
+def test_ctrl_b_collapses_the_rail_and_gives_the_width_back():
+    app = App(FakeChat(), FakeScreen())
+    narrow = app._body_size()[2]
+    assert app.rail_visible is True
+    app.handle_key("CTRL_B")
+    assert app.rail_visible is False
+    assert app._body_size()[2] > narrow, "collapsing the rail must widen the transcript"
+    app.handle_key("CTRL_B")
+    assert app.rail_visible is True
+    assert app._body_size()[2] == narrow
 
 
 def test_cli_refuses_tui_when_stdout_is_not_a_terminal(monkeypatch, capsys):
