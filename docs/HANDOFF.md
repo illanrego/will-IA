@@ -42,9 +42,10 @@ willia --status                                             # the real chat's st
 willia --usage                                              # the meter + the plan's windows
 ```
 
-## State as of this handoff (2026-10-14, 28 commits, pushed; HEAD `dd90044`)
+## State as of this handoff (2026-10-14, 43 commits, pushed; HEAD `4d7ff71`)
 
-- **P0, P1 and P2 are closed; P3's bootstrap and tooling are in; P4's first batch is landed.**
+- **P0, P1, P2 closed; P3's bootstrap and tooling in (both accounts now); P4a landed; the TUI's
+  P5a-P5d landed.**
   - **P2a** the delegates as real subprocesses; **P2b** the three native tools. P2's acceptance ran
     for real, both ways: a Codex job driven through `dispatch` (`probes/p2-live-proof.py`) and once
     more through a real model turn (`probes/p2-turn-proof.py`), plus real `web_search` /
@@ -75,17 +76,15 @@ willia --usage                                              # the meter + the pl
 
 ## Next, in order
 
-1. **His first real ride with the new tools** (P3 item 2, still outstanding). Each failure the ride
-   surfaces gets a repro, a fix, a test and a commit — the `FINDINGS.md` discipline carried over.
-   `terminal` is the one to watch: it is ungated by design.
-2. **The TUI, next** — Illan's ruling, reversed 2026-10-14: the line-based REPL renders the model's
-   reasoning and its answer as one stream (`chat._on_delta` ignores the stream kind), so the display
-   is replaced **before** more tools land into it. Direction: cyberpunk AI tool, blue-dominant,
-   Omarchy-home-menu rather than opencode. It needs its own phase and acceptance, which do not exist
-   yet (`SCOPE.md` question 3, `PHASES.md` P4).
-3. **Then the remaining P4 batches**, in this order: browser, computer use, voice, cron, MCP, skills
-   — and the planning `todo`, which P4a deliberately skipped. Each rewrites the cache prefix once,
-   then freezes.
+1. **The browser batch (P4b) is blocked on one decision: its dependency.** `TOOLS.md` section 9 says
+   `browser` is local Playwright, which means a real dependency plus downloaded browser binaries — the
+   project has exactly one dependency (`ddgs`) on purpose, so this is his call, not the session's.
+   `computer_use` has the same shape (a driver process in Hermes). Voice, cron, MCP and skills need
+   no dependency. The planning `todo` was deliberately skipped in P4a.
+2. **His first real ride with the tools, now including the TUI.** Each failure the ride surfaces gets
+   a repro, a fix, a test and a commit. `terminal` is the one to watch: it is ungated by design.
+3. **Then the rest of the parity batches**, one at a time; each rewrites the cache prefix once, then
+   freezes.
 
 ## The rules he holds you to
 
@@ -120,6 +119,22 @@ willia --usage                                              # the meter + the pl
   the repo default. Check both before promising a batch changed the model's behaviour. The batch must
   also carry a constant block *and* a sentence that supersedes the stale line in the user's own copy,
   or the model is told it has no tool it demonstrably has.
+- **Nothing on the TUI's startup path may wait.** A usage HTTP fetch and the rail's engine lock (which
+  queues behind a whole compaction drain wave) once left the terminal blank for 25 seconds with zero
+  bytes written. The fetch runs on a daemon thread; the rail reads a non-blocking snapshot
+  (`Chat.engine_try`) and shows `compacting` instead of stalling.
+- **An idle TUI must write zero bytes.** Repainting on the refresh timer and clearing the screen on
+  every paint is what made it flash. The frame is compared to the last one, every row is padded to the
+  full width, and the paint homes instead of clearing (`ESC[H` + `ESC[J`). Measured: 0 bytes while idle.
+- **Never benchmark or probe against a copy of the live chat while it is catching up.** The copy
+  re-runs the same compactions, on the real account. A stubbed summarizer for performance work, and a
+  chat that has settled, or the numbers are someone else's bill.
+- **A swallowed exception in the draw path hides everything.** `redraw()`'s `except Exception: pass`
+  turned a `NameError` into a blank screen with nothing in the tests and nothing in the log; a draw
+  error now shows on the status line as `DRAW FAILED` while still not killing the chat.
+- **Guard the rail against the real builder, not a literal list.** A label renamed in
+  `build_rail_facts` ships mute (no hint) and truncated (past the 9-cell column) unless the test builds
+  its rows through the builder itself.
 - **The suite must never touch `~/.willia`.** `tests/conftest.py` points `WILLIA_HOME` at a temp
   directory for every test, because the meter appends on every model call and some client tests build
   a `Config` whose root defaults to the real chat.
