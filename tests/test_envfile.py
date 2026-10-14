@@ -1,6 +1,6 @@
 import pytest
 
-from willia.envfile import MissingCredential, openrouter_key, read_env_file, require
+from willia.envfile import MissingCredential, opencode_go_key, read_env_file, require
 
 
 def test_parses_comments_blanks_quotes_and_literal_shell_characters(tmp_path):
@@ -43,10 +43,10 @@ def test_missing_key_names_key_and_file(tmp_path, monkeypatch):
 
 def test_real_environment_overrides_file(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    path.write_text("OPENROUTER_API_KEY=file-value\n")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "environment-value")
+    path.write_text("OPENCODE_GO_API_KEY=file-value\n")
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "environment-value")
 
-    assert openrouter_key(path=path) == "environment-value"
+    assert opencode_go_key(path=path) == "environment-value"
 
 
 def test_default_file_can_be_overridden(tmp_path, monkeypatch):

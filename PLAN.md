@@ -22,8 +22,8 @@ code; the session writes the briefs, reviews the diffs, runs the tests, commits.
      `delegate_hermes`, `web_search`, `web_extract`, `vision`; where each result lands in the log.
    - `DELEGATES.md` — subprocess contracts: exact commands (incl. the `codex exec` form), working
      dirs, report capture, background/report mechanics, the `work`-record shape.
-   - `ENV.md` — env matrix: `OPENCODE_GO_API_KEY` (+ source file), `OPENROUTER_API_KEY` for
-     vision, data path (`~/.willia` or decided), budgets (view 64–128 KB, compaction views 16–32 KB).
+   - `ENV.md` — env matrix: `OPENCODE_GO_API_KEY` (+ source file) as the only credential, data path
+     (`~/.willia` or decided), budgets (view 64–128 KB, compaction views 16–32 KB).
    - `PHASES.md` — P0–P3 with per-phase acceptance checks (what green means, what to measure).
 3. Freeze: after red-lines, the docs are the build contract. Briefs cite the doc, never re-describe it.
 

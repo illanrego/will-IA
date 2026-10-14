@@ -18,7 +18,9 @@ or Hermes, and non-coding tools implemented natively.
   envelope — already designed and measured in the optHermes season).
 - **OpenCode Go plan.** Chat and compactions authenticate with `OPENCODE_GO_API_KEY` read from
   `~/.hermes/.env`; base URL `https://opencode.ai/zen/go/v1`; default model
-  `deepseek-v4.1-flash`. Zero new credentials. Vision (v1 native) reuses `OPENROUTER_API_KEY`.
+  `deepseek-v4.1-flash`. **One credential, zero new ones** - turns, compactions and the v1 native
+  `vision` tool all go through this route (settled 2026-10-13, measured: an ordinary multimodal user
+  message on the same endpoint, `docs/TOOLS.md` §7).
 - **Not for coding.** Coding tasks delegate out: `delegate_codex` (primary) and
   `delegate_hermes` (his default profile; inherits its default model — nothing to override).
 - **Native tools = the non-coding rest:** `web_search`, `web_extract`, `vision` for v1
@@ -88,4 +90,4 @@ or Hermes, and non-coding tools implemented natively.
 2. In-prompt agent name: rename the recipe's "Unii" to "Will" (or "will.I.A.")? Persona is yours.
 3. P1 REPL: plain line-based first (recommended), fancy TUI later?
 4. Native v1 set: web + vision is enough to start, or anything else already missing?
-5. ~~Codex delegation default~~ **SETTLED:** `gpt-6-sol` at high effort for most tasks; `gpt-6-astra` at high only for the tricky or precision-critical parts (where a late catch would cost more than the model does).
+5. ~~Codex delegation default~~ **SETTLED:** `gpt-5.6-sol` at high effort for most tasks; `gpt-6-astra` at high only for the tricky or precision-critical parts (where a late catch would cost more than the model does). (Corrected 2026-10-13: this line said `gpt-6-sol`, which does not exist and 400s instantly. The account's catalog is `gpt-5.5`, `gpt-5.6-sol`, `gpt-6-astra`; the delegate command is `docs/DELEGATES.md` section 2.)

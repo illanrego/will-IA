@@ -4,8 +4,7 @@
 
 | Variable | Used for | Source | Notes |
 |---|---|---|---|
-| `OPENCODE_GO_API_KEY` | every chat call and every compaction | read from `~/.hermes/.env` at startup | the only credential the chat route needs; never copied into the repo or into `~/.willia` |
-| `OPENROUTER_API_KEY` | the `vision` tool only | read from `~/.hermes/.env` | vision is a separate out-of-band call returning text (`TOOLS.md` §7) |
+| `OPENCODE_GO_API_KEY` | every chat call, every compaction, and the `vision` tool | read from `~/.hermes/.env` at startup | **the only credential willia reads at all** - turns, compactions and vision share the one route (`TOOLS.md` §7); never copied into the repo or into `~/.willia` |
 | `WILLIA_HOME` | overrides the data root | the environment | optional; default below |
 | `WILLIA_CONFIG` | overrides the config file path | the environment | optional |
 

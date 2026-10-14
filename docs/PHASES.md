@@ -142,7 +142,7 @@ and the vision route is the Go route with the chat's own model, not OpenRouter.
   block, the report lands as a `work` record, `zoom("<Name>")` opens the child, and the file the
   delegate claims to have written **exists and is verified by the session**.
 - `web_search` and `web_extract` round-trip with real results; `vision` answers a real question
-  about a real image through OpenRouter.
+  about a real image on the Go route, with the chat's own model (`TOOLS.md` §7).
 - `zoom(40, 8)`-style navigation round-trips against a real chat, including one
   `"span is not summarized yet"` and one `"is not a power of two"` error path.
 - No tool result ever places a list-type content part in a tool message (grep the client's

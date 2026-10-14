@@ -35,9 +35,10 @@ commit of its own — never edited in place.
 - **The memory is the design.** One append-only log; a binary summary tree; a constant-size view
   (64–128 KB sawtooth); zoom/date navigation; compactions shaped like turns so they read the
   turns' cache prefix. `SCOPE.md` holds the invariants; `ENGINE.md` shows which module enforces each.
-- **OpenCode Go is the only chat route.** `OPENCODE_GO_API_KEY` from `~/.hermes/.env`, base
-  `https://opencode.ai/zen/go/v1`, default model `deepseek-v4.1-flash`. Vision (v1) uses
-  `OPENROUTER_API_KEY`. Zero new credentials.
+- **OpenCode Go is the only route, for every call.** `OPENCODE_GO_API_KEY` from `~/.hermes/.env`,
+  base `https://opencode.ai/zen/go/v1`, default model `deepseek-v4.1-flash`. Turns, compactions and
+  `vision` all go through it: the vision call is an ordinary multimodal **user** message on the same
+  route, with the chat's own model, measured 2026-10-13. **One credential, and zero new ones.**
 - **Not for coding.** Coding delegates out (`delegate_codex` primary, `delegate_hermes` secondary).
 - **Native tools are the non-coding rest:** `web_search`, `web_extract`, `vision` for v1.
 - **One endless chat, single profile.** No profiles, no threads, no session list.

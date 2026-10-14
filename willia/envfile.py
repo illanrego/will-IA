@@ -1,4 +1,4 @@
-"""Credential-file parsing for the two external model routes.
+"""Credential-file parsing for the one external route willia calls.
 
 Values are read literally so a small dotenv file never becomes a shell or a
 second configuration language.
@@ -56,7 +56,3 @@ def require(name: str, *, path: str | os.PathLike[str] | None = None) -> str:
 
 def opencode_go_key(*, path: str | os.PathLike[str] | None = None) -> str:
     return require("OPENCODE_GO_API_KEY", path=path)
-
-
-def openrouter_key(*, path: str | os.PathLike[str] | None = None) -> str:
-    return require("OPENROUTER_API_KEY", path=path)

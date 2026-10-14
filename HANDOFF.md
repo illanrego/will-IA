@@ -18,7 +18,7 @@ What to do, in order:
 2. Ask me the open questions at the bottom of SCOPE.md (dir/repo name; in-prompt agent name; P1 REPL shape; native v1 tool set) in ONE short round.
 3. Produce the doc set listed in PLAN.md — interfaces EXTRACTED from the engine's source, exact shapes, no paraphrasing. Brief replies; I red-line each doc.
 4. When I say go, implement in phases P0→P3, delegating the code to Codex:
-   - default: `codex exec -m gpt-6-sol -c model_reasoning_effort="high" --approve-for-me -C ~/Documents/coding/willia -o <report>.md "$(cat <brief>.md)"` — sol @ high for most tasks;
+   - default: `codex exec -m gpt-5.6-sol -c model_reasoning_effort="high" --approve-for-me --skip-git-repo-check -C ~/Documents/coding/willia -o <report>.md "$(cat <brief>.md)"` — sol @ high for most tasks; (Corrected 2026-10-13: the kickoff wrote `-m gpt-6-sol`, which does not exist and 400s instantly, and omitted `--skip-git-repo-check`, which `codex exec` needs outside a git repository. The live resume point is `docs/HANDOFF.md`.)
    - exceptions (tricky or precision-critical): the same command with `-m gpt-6-astra` @ high.
    - Write each brief to a file first; verify every run yourself (read the diff, run the tests, prove red-first when behavior changes) BEFORE committing; commit per step; never trust the delegate's summary.
 
