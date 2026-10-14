@@ -304,6 +304,92 @@ def _stream_wrap(records: list[Any], width: int, style: str, *,
     return lines
 
 
+_LIST_MARKER = re.compile(r"^(?:[-*] |\d+\. )")
+
+
+def _answer_wrap(records: list[Any], width: int) -> list[Line]:
+    """Wrap answer paragraphs and lists without losing their log-source identity.
+
+    Answer newlines are semantic: an empty logical line remains one empty display row. List
+    markers are dim, while continuations use a hanging indent equal to the marker's cell width.
+    """
+    text, indexed = _stream_sources(records)
+    width = max(1, width)
+    logical: list[tuple[int, int]] = []
+    start = 0
+    for match in re.finditer("\n", text):
+        logical.append((start, match.start()))
+        start = match.end()
+    logical.append((start, len(text)))
+
+    def line_sources(start: int, end: int) -> tuple[Source, ...]:
+        found: list[Source] = []
+        for source_start, source_end, source in indexed:
+            overlaps = source_start < end and source_end > start
+            empty_match = start == end and source_start == source_end == start
+            newline_owner = start == end and source_end == start and source_start < source_end
+            if (overlaps or empty_match or newline_owner) and source not in found:
+                found.append(source)
+        return tuple(found)
+
+    def source_at(position: int) -> Source | None:
+        for source_start, source_end, source in indexed:
+            if source_start <= position < source_end:
+                return source
+        return None
+
+    lines: list[Line] = []
+    for start, end in logical:
+        sources = line_sources(start, end)
+        primary = sources[0] if sources else None
+        raw = text[start:end]
+        marker_match = _LIST_MARKER.match(raw)
+        marker = marker_match.group(0) if marker_match else ""
+        content_start = start + len(marker)
+        indent = cell_width(marker)
+        content_width = max(1, width - indent) if marker else width
+        ranges = _markdown_ranges(text, content_start, end, "body")
+        wrapped = _wrap_runs(
+            [Span(text[lo:hi], token) for lo, hi, token in ranges], content_width)
+        visible = [(text[position], source_at(position))
+                   for lo, hi, _token in ranges for position in range(lo, hi)]
+        visible_cursor = 0
+
+        # _wrap_runs intentionally returns one row for empty input, preserving paragraph breaks.
+        for row_index, row in enumerate(wrapped):
+            prefix = marker if row_index == 0 else " " * indent
+            prefix_spans = (Span(prefix, "dim"),) if marker else ()
+            spans = (*prefix_spans, *row.spans)
+            value = prefix + row.text
+            row_style = spans[0].style if spans else "body"
+            row_sources: list[Source] = []
+            if marker and row_index == 0:
+                for position in range(start, content_start):
+                    source = source_at(position)
+                    if source is not None and source not in row_sources:
+                        row_sources.append(source)
+            for char in row.text:
+                while visible_cursor < len(visible) and visible[visible_cursor][0] != char:
+                    visible_cursor += 1
+                if visible_cursor >= len(visible):
+                    break
+                source = visible[visible_cursor][1]
+                if source is not None and source not in row_sources:
+                    row_sources.append(source)
+                visible_cursor += 1
+            sources_for_row = tuple(row_sources) or sources
+            primary = sources_for_row[0] if sources_for_row else None
+            lines.append(Line(
+                value, row_style, spans,
+                record_id=primary.record_id if primary else None,
+                record_kind=primary.record_kind if primary else None,
+                source_text=primary.text if primary else None,
+                source_index=primary.index if primary else None,
+                sources=sources_for_row,
+            ))
+    return lines
+
+
 def _field(item: Any, name: str, default: Any = None) -> Any:
     if isinstance(item, dict):
         return item.get(name, default)
@@ -319,6 +405,8 @@ def _quoted(value: Any) -> str:
 
 def _arguments(value: Any) -> str:
     if isinstance(value, dict):
+        if not value:
+            return "arguments {}"
         return "  ".join(f"{key} {_quoted(item)}" for key, item in value.items())
     return f"arguments {_quoted(value)}"
 
@@ -369,10 +457,9 @@ def _stream_content(records: list[Any], width: int, kind: str) -> list[Line]:
     if kind == "reasoning":
         return _gutter(
             _stream_wrap(records, max(1, width - 2), "reason"), "rule_strong")
-    return _stream_wrap(
-        records, width, "you" if kind == "user" else "body",
-        markdown=kind == "will",
-    )
+    if kind == "will":
+        return _answer_wrap(records, width)
+    return _stream_wrap(records, width, "you")
 
 
 def _block(label: str, label_style: str, content: list[Line], width: int) -> list[Line]:
@@ -537,6 +624,49 @@ def viewport(lines: list[Line], height: int, offset: int = 0) -> list[Line]:
     return lines[max(0, end - height):end]
 
 
+def _with_rhythm(lines: list[Line]) -> list[Line]:
+    """Translate 005's block margins into single, collapsed terminal rows."""
+    if not lines:
+        return []
+    starts = [index for index, line in enumerate(lines)
+              if line.style == "rule" and line.source_index == -1]
+    if not starts:
+        return lines
+    starts.append(len(lines))
+    blocks = [lines[starts[index]:starts[index + 1]] for index in range(len(starts) - 1)]
+    prefix = lines[:starts[0]]
+    result = list(prefix)
+
+    def blank() -> None:
+        if not result or result[-1].text:
+            result.append(Line("", "body"))
+
+    previous = ""
+    after_margin = {"reasoning", "will", "echo", "work"}
+    for block in blocks:
+        kind = block[0].record_kind or ""
+        if (
+            kind == "user"
+            or (kind == "tool" and previous != "tool")
+            or previous in after_margin
+            or (previous == "tool" and kind != "tool")
+        ):
+            blank()
+        result.extend(block)
+        previous = kind
+
+    # Bottom stage padding is supplied by the frame's unused rows. The logical transcript must
+    # end in real content so viewport math and yanking never land on a synthetic trailing row.
+    while result and not result[-1].text:
+        result.pop()
+    collapsed: list[Line] = []
+    for line in result:
+        if not line.text and collapsed and not collapsed[-1].text:
+            continue
+        collapsed.append(line)
+    return collapsed
+
+
 def render(records, in_flight, width, height, theme, *,
            show_notes: bool = False, collapsed_records=(),
            report_paths: Mapping[str, str] | None = None) -> list[Line]:
@@ -579,6 +709,7 @@ def render(records, in_flight, width, height, theme, *,
         lines.extend(produced)
         index += 1
     lines.extend(_flight_lines(in_flight or (), width))
+    lines = _with_rhythm(lines)
     if any(line.style not in colours for line in lines):
         raise ValueError("Renderer produced an unknown style token")
     return lines if height is None or height < 0 else viewport(lines, height)

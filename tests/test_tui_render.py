@@ -24,9 +24,10 @@ def record(kind, text, i=0):
 def test_plain_record_kinds(kind, text, style):
     lines = render([record(kind, text)], [], 40, 20, "blue")
     label = "ILLAN" if kind == "user" else "WILLIA"
-    assert [(line.text, line.style) for line in lines] == [
-        ("─" * 40, "rule"), (label, "dim"), (text, style),
-    ]
+    expected = [("─" * 40, "rule"), (label, "dim"), (text, style)]
+    if kind == "user":
+        expected.insert(0, ("", "body"))
+    assert [(line.text, line.style) for line in lines] == expected
 
 
 def test_consecutive_stream_records_are_one_continuous_block():
@@ -70,10 +71,10 @@ def test_imported_memory_is_hidden_unless_asked_for():
 ])
 def test_rule_label_content_block_for_each_record_kind(kind, text, label, show_notes):
     lines = render([record(kind, text)], [], 80, -1, "blue", show_notes=show_notes)
-    assert lines[0].text == "─" * 80
-    assert lines[0].style == "rule"
-    assert lines[1].text == label
-    assert lines[2].text
+    rule = next(index for index, line in enumerate(lines) if line.style == "rule")
+    assert lines[rule].text == "─" * 80
+    assert lines[rule + 1].text == label
+    assert lines[rule + 2].text
 
 
 def test_work_tool_and_echo_records_have_the_approved_styles_and_shapes():
@@ -86,9 +87,10 @@ def test_work_tool_and_echo_records_have_the_approved_styles_and_shapes():
     assert [(line.text, line.style) for line in lines[:3]] == [
         ("─" * 80, "rule"), ("WORK · [Fix-CLI]", "amber"), ("repaired it", "dim"),
     ]
-    assert lines[4].text == "TOOL · terminal"
-    assert lines[4].style == "agent"
-    assert lines[5].text == 'command "pwd"'
+    tool_label = next(index for index, line in enumerate(lines)
+                      if line.text == "TOOL · terminal")
+    assert lines[tool_label].style == "agent"
+    assert lines[tool_label + 1].text == 'command "pwd"'
     assert [line.text for line in lines[-4:]] == [
         "│ one", "│ two", "│ three", "│ … 2 more lines",
     ]
@@ -101,11 +103,11 @@ def test_a_long_tool_argument_stays_one_line():
     brief = "do the thing and prove it " * 40
     tool = json.dumps({"name": "delegate_codex", "arguments": {"task": brief}})
     lines = render([record("tool", tool)], [], 60, -1, "blue")
-    assert len(lines) == 3, f"a framed tool call rendered as {len(lines)} lines"
-    assert lines[1].text == "TOOL · delegate_codex"
-    assert cell_width(lines[2].text) <= 60
-    assert lines[2].text.endswith("…")
-    assert lines[2].text.startswith('task "do the thing')
+    assert len(lines) == 4, f"a framed tool call rendered as {len(lines)} lines"
+    assert lines[2].text == "TOOL · delegate_codex"
+    assert cell_width(lines[3].text) <= 60
+    assert lines[3].text.endswith("…")
+    assert lines[3].text.startswith('task "do the thing')
 
 
 @pytest.mark.parametrize(("text", "trailer"), [
@@ -114,8 +116,10 @@ def test_a_long_tool_argument_stays_one_line():
 ])
 def test_clip_counts_are_exact_and_grammatical(text, trailer):
     lines = render([record("echo", text)], [], 80, -1, "blue")
-    assert [line.text for line in lines[2:5]] == ["│ one", "│ two", "│ three"]
-    assert lines[5].text == f"│ {trailer}"
+    label = next(index for index, line in enumerate(lines) if line.text == "RESULT")
+    assert [line.text for line in lines[label + 1:label + 4]] == [
+        "│ one", "│ two", "│ three"]
+    assert lines[label + 4].text == f"│ {trailer}"
 
 
 def test_clipped_work_links_an_existing_report_from_the_delegate_result(tmp_path):
@@ -205,6 +209,57 @@ def test_in_flight_reasoning_and_content_are_visually_distinct():
     assert [span.style for span in lines[2].spans] == ["rule_strong", "reason"]
     assert lines[2].record_kind == "reasoning"
     assert lines[3].style == "body"
+
+
+def test_005_vertical_rhythm_is_exact_and_collapsed_between_block_kinds():
+    tool = lambda name, i: record(  # noqa: E731 - compact fixture reads like the transcript
+        "tool", json.dumps({"name": name, "arguments": {}}), i)
+    lines = render([
+        record("user", "ask", 0),
+        record("reasoning", "consider", 1),
+        record("will", "answer", 2),
+        tool("first", 3), tool("second", 4),
+        record("echo", "output", 5),
+        record("work", "[Job] done", 6),
+        record("user", "follow-up", 7),
+    ], [], 60, -1, "blue")
+    texts = [line.text for line in lines]
+    labels = ["ILLAN", "THINK", "WILLIA", "TOOL · first", "TOOL · second",
+              "RESULT", "WORK · [Job]", "ILLAN"]
+    positions = []
+    cursor = 0
+    for label in labels:
+        position = texts.index(label, cursor)
+        positions.append(position)
+        cursor = position + 1
+
+    assert texts[0] == ""                       # stage top padding / user margin collapse
+    for pair_index, (previous, current) in enumerate(zip(positions, positions[1:])):
+        between = texts[previous + 2:current - 1]
+        if pair_index in {0, 3}:
+            assert "" not in between             # no user tail; packets pack tight
+        else:
+            assert between.count("") == 1         # every requested block margin is one row
+    assert not any(left == right == "" for left, right in zip(texts, texts[1:]))
+    assert texts[-1] != ""                       # no synthetic trailing transcript row
+
+
+def test_answer_paragraph_break_and_list_hanging_indent_survive_wrapping():
+    text = "First paragraph.\n\n- alpha beta gamma delta\n1. ordered item wraps too"
+    lines = render([record("will", text)], [], 14, -1, "blue")
+    content = lines[2:]
+    assert "" in [line.text for line in content]
+    bullet = next(index for index, line in enumerate(content)
+                  if line.text.startswith("- "))
+    assert content[bullet].spans[0] == Span("- ", "dim")
+    assert content[bullet].spans[1].style == "body"
+    assert content[bullet + 1].text.startswith("  ")
+    assert content[bullet + 1].text[2:].startswith("gamma")
+    assert content[bullet + 1].spans[0] == Span("  ", "dim")
+    ordered = next(index for index, line in enumerate(content)
+                   if line.text.startswith("1. "))
+    assert content[ordered].spans[0] == Span("1. ", "dim")
+    assert content[ordered + 1].text.startswith("   ")
 
 
 def test_all_palettes_define_exactly_the_same_fourteen_tokens():

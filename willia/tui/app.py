@@ -17,6 +17,7 @@ import json
 import logging
 from pathlib import Path
 import queue
+import re
 import threading
 import time
 from enum import Enum
@@ -277,7 +278,8 @@ class App:
 
     def _max_offset(self) -> int:
         _width, body_height, centre = self._body_size()
-        return max(0, len(self._transcript(centre)) - body_height)
+        transcript_height = max(0, body_height - 2)  # 005's top and bottom stage padding
+        return max(0, len(self._transcript(centre)) - transcript_height)
 
     def _move(self, amount: int) -> None:
         lines = self._all_transcript_lines()
@@ -738,16 +740,66 @@ class App:
         biggest = max(raw_levels.values(), default=0)
         count_width = max((len(str(count)) for count in raw_levels.values()), default=1)
         self.rail_index = min(self.rail_index, max(0, len(facts) - 1))
+        section = ""
+
+        def padded_spans(parts: list[Span]) -> tuple[str, tuple[Span, ...]]:
+            text = "".join(part.text for part in parts)
+            remaining = RAIL_WIDTH - 1 - cell_width(text)
+            if remaining > 0:
+                parts.append(Span(" " * remaining, "dim"))
+                text += " " * remaining
+            return fit(text, RAIL_WIDTH - 1), tuple(parts)
+
+        def header_text(value: str, suffix: str = "") -> str:
+            spaced = " ".join(value)
+            candidate = spaced + suffix
+            return candidate if cell_width(candidate) <= RAIL_WIDTH - 1 else value + suffix
+
+        def value_spans(label: str, value: str, token: str) -> list[Span]:
+            if label == "64K-128K":
+                parts: list[Span] = []
+                for char in value:
+                    char_token = "data" if char == "●" else (
+                        "rule_strong" if char == "─" else "dim")
+                    if parts and parts[-1].style == char_token:
+                        parts[-1] = Span(parts[-1].text + char, char_token)
+                    else:
+                        parts.append(Span(char, char_token))
+                return parts
+
+            base_token = token
+            if section == "#facts":
+                if label.endswith("↺"):
+                    base_token = "dim"
+                elif re.fullmatch(r"[\d.,% /]+", value):
+                    base_token = "data"
+                else:
+                    base_token = "body"
+            suffix_at = len(value)
+            parenthesis = value.find("(")
+            middle_dot = value.find("·")
+            if parenthesis >= 0:
+                suffix_at = min(suffix_at, parenthesis)
+            if middle_dot >= 0:
+                suffix_at = min(suffix_at, middle_dot)
+            parts = [Span(value[:suffix_at], base_token)] if suffix_at else []
+            if suffix_at < len(value):
+                parts.append(Span(value[suffix_at:], "dim"))
+            return parts
+
         for index, (label, value, style) in enumerate(facts):
             if label.startswith("#"):
+                section = str(label)
                 if lines:                      # 005's .sep and its gap between sections
                     # The gap carries the rail's width in spaces: an empty string makes the
                     # composer drop the rail column on that row and the transcript slides left.
                     lines.append(Line(" " * (RAIL_WIDTH - 1), "body"))
                     lines.append(Line("─" * (RAIL_WIDTH - 1), "rule"))
                 text = label[1:].upper()
+                suffix = ""
                 if label in self.collapsed_groups:
-                    text += f" [{value}]"
+                    suffix = f" [{value}]"
+                text = header_text(text, suffix)
                 shown = fit(text, RAIL_WIDTH - 1)
                 token = "strong" if index == self.rail_index and self.focus == Pane.RAIL else "dim"
                 spans = (Span(shown, token, "panel"),) if token == "strong" else ()
@@ -756,17 +808,33 @@ class App:
             if str(label) in raw_levels:
                 count = raw_levels[str(label)]
                 filled = max(1, round(12 * count / biggest)) if count and biggest else 0
-                value = "█" * filled + " " * (12 - filled) + f" {count:>{count_width}}"
+                label_part = fit(str(label), 9)
+                bar = "█" * filled + " " * (12 - filled)
+                count_part = f"{count:>{count_width}}"
+                shown, spans = padded_spans([
+                    Span(label_part + " ", "dim"),
+                    Span(bar, "data"),
+                    Span(" " + count_part, "dim"),
+                ])
+                selected = index == self.rail_index and self.focus == Pane.RAIL
+                if selected:
+                    spans = tuple(Span(span.text, "strong", "panel") for span in spans)
+                lines.append(Line(shown, "strong" if selected else "dim", spans))
+                continue
             available = RAIL_WIDTH - 1
             label_width = min(9, available)
             value_width = max(0, available - label_width - 1)
-            text = (fit(str(label), label_width) + " "
-                    + fit(str(value), value_width, ellipsis="…", pad=False))
-            shown = fit(text, RAIL_WIDTH - 1, ellipsis="…")
+            clipped_value = fit(str(value), value_width, ellipsis="…", pad=False)
+            shown, spans = padded_spans([
+                Span(fit(str(label), label_width) + " ", "dim"),
+                *value_spans(str(label), clipped_value, str(style)),
+            ])
             selected = index == self.rail_index and self.focus == Pane.RAIL
+            if selected:
+                spans = tuple(Span(span.text, "strong", "panel") for span in spans)
             lines.append(Line(
                 shown, "strong" if selected else style,
-                (Span(shown, "strong", "panel"),) if selected else (),
+                spans,
             ))
         return lines[:height]
 
@@ -779,18 +847,24 @@ class App:
         # The in-flight tail is rebuilt each frame: it is small and it is what is moving.
         flight = render((), self.in_flight, centre, -1, self.theme) if self.in_flight else []
         all_transcript = durable + flight
-        transcript = viewport(all_transcript, body_height, self.scroll_offset)
-        transcript_start = max(0, len(all_transcript) - self.scroll_offset - body_height)
+        transcript_height = max(0, body_height - 2)  # one blank row above and below the stage
+        transcript = viewport(all_transcript, transcript_height, self.scroll_offset)
+        if transcript and not transcript[0].text:
+            transcript = transcript[1:]             # collapse a block margin into stage padding
+        transcript_start = max(
+            0, len(all_transcript) - self.scroll_offset - transcript_height)
         rail = self._rail_lines(body_height)
         rows: list[Line] = []
         for index in range(body_height):
-            right = transcript[index] if index < len(transcript) else Line("", "body")
+            transcript_index = index - 1
+            right = (transcript[transcript_index]
+                     if 0 <= transcript_index < len(transcript) else Line("", "body"))
             right_spans = right.spans or (Span(right.text, right.style),)
-            if self.visual_anchor is not None and index < len(transcript):
+            if self.visual_anchor is not None and 0 <= transcript_index < len(transcript):
                 current = self._focused_transcript_index()
                 if current is not None:
                     lo, hi = sorted((self.visual_anchor, current))
-                    if lo <= transcript_start + index <= hi:
+                    if lo <= transcript_start + transcript_index <= hi:
                         right_spans = tuple(Span(span.text, span.style, "panel")
                                             for span in right_spans)
             if self.rail_visible:
