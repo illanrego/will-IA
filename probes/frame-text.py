@@ -55,10 +55,15 @@ RECORDS = [
                                              "name": "Fix-CLI"}})),
     rec(3, "echo", '{"status": "started", "name": "Fix-CLI", "agent": "codex", '
                    '"report_path": "/home/illan/.willia/jobs/Fix-CLI-20261014T080000Z/report.md"}'),
-    rec(4, "will", "Delegated to Codex as Fix-CLI; its report will arrive on its own."),
-    rec(5, "work", "[Fix-CLI] flag order was reversed in cli.py; patch applied, suite green.\n"
+    # One answer, flushed by the client mid-word - the six-record run in the live chat.
+    rec(4, "will", "Delegated to Codex as Fix-CLI; its report arrives on its own. Meanwhile the "
+                   "metering path needs a look, because the last commit **2026-10-14** touched it "
+                   "and the `usage.jsonl` writer has not been exercised since. The branch "),
+    rec(5, "will", "`feat/meter-split` carries the fix, and `willia --usage` reads it back."),
+    rec(6, "echo", '{"exit": 0, "stderr": ""}'),
+    rec(7, "work", "[Fix-CLI] flag order was reversed in cli.py; patch applied, suite green.\n"
                    "Ran: uv run pytest -q -> 12 passed. Nothing outside the repo was touched."),
-    rec(6, "user", "good. now check the metering path too."),
+    rec(8, "user", "good. now check the metering path too."),
 ]
 
 app = App(FakeChat(RECORDS), NullScreen(), rail_facts=[
