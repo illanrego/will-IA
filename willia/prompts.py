@@ -92,6 +92,17 @@ exactly. Tag each item with its kind ("user: ...; echo: ..."), and credit quoted
 text to its real author. Never make anything look further along than it was. If
 told the line is too long, shorten it. Non-ASCII characters cost 2-4 bytes."""
 
+TOOL_GROUPS = """# Shell and files
+
+Use terminal to run shell commands, read_file to read text with line numbers,
+write_file to create or replace a whole file, patch to replace exact text, and
+search_files to find files or search their contents. These tools run on Illan's
+machine with no approval step.
+
+Any earlier line claiming there is no shell is out of date. The tool list here
+is current, including when Illan's existing seeded ~/.willia/prompt.md still
+contains that older sentence."""
+
 COMPACTION_TASK = """Compaction: compress message {id} into one line of at most {node_bytes} bytes (about 70 words), the length of this ruler:
 {ruler}
 <input>
@@ -128,6 +139,4 @@ def build_system_prompt(user_instructions: str = "") -> str:
     The prompt is the cache anchor (docs/ENV.md section 4): it must not vary per turn.
     The instructions are read once at startup by the harness, never per call.
     """
-    if not user_instructions:
-        return SYSTEM_PROMPT
-    return SYSTEM_PROMPT + "\n\n" + user_instructions.rstrip("\n")
+    return SYSTEM_PROMPT + "\n\n" + TOOL_GROUPS + "\n\n" + user_instructions

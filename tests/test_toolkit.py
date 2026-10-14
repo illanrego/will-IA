@@ -12,7 +12,10 @@ from willia import Compactor, Tree, prompts
 
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
-NAMES = ("zoom", "date", "delegate_codex", "delegate_hermes", "web_search", "web_extract", "vision")
+NAMES = (
+    "zoom", "date", "delegate_codex", "delegate_hermes", "web_search", "web_extract", "vision",
+    "terminal", "read_file", "write_file", "patch", "search_files",
+)
 
 
 def test_system_prompt_matches_canonical_block():
@@ -60,7 +63,8 @@ def test_all_tool_names_are_in_the_composed_prompt():
     assert composed.startswith(prompts.SYSTEM_PROMPT)
     assert len(composed) > len(prompts.SYSTEM_PROMPT)
     assert instructions
-    assert all(name in instructions for name in NAMES[2:])
+    assert all(name in instructions for name in NAMES[2:7])
+    assert all(name in prompts.TOOL_GROUPS for name in NAMES[7:])
 
 
 def test_schemas_match_documented_contract():
@@ -89,6 +93,11 @@ def test_schemas_return_fresh_deep_copies():
     ("web_search", ["query"]),
     ("web_extract", ["urls"]),
     ("vision", ["image_url", "question"]),
+    ("terminal", ["command"]),
+    ("read_file", ["path"]),
+    ("write_file", ["path", "content"]),
+    ("patch", ["path", "old_string", "new_string"]),
+    ("search_files", ["pattern"]),
 ])
 def test_function_schema_shape(name, required):
     toolkit = importlib.import_module("willia.toolkit")
@@ -126,10 +135,13 @@ def test_compaction_task_is_only_the_template(tmp_path):
 
 
 def test_build_system_prompt_without_instructions():
-    assert prompts.build_system_prompt() == prompts.SYSTEM_PROMPT
-    assert prompts.build_system_prompt("") == prompts.SYSTEM_PROMPT
+    expected = prompts.SYSTEM_PROMPT + "\n\n" + prompts.TOOL_GROUPS + "\n\n"
+    assert prompts.build_system_prompt() == expected
+    assert prompts.build_system_prompt("") == expected
 
 
 @pytest.mark.parametrize("instructions", ["My instructions", "  Keep the indent\n", "Line one\nLine two\n\n"])
 def test_build_system_prompt_appends_only_startup_instructions(instructions):
-    assert prompts.build_system_prompt(instructions) == prompts.SYSTEM_PROMPT + "\n\n" + instructions.rstrip("\n")
+    assert prompts.build_system_prompt(instructions) == (
+        prompts.SYSTEM_PROMPT + "\n\n" + prompts.TOOL_GROUPS + "\n\n" + instructions
+    )

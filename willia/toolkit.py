@@ -5,6 +5,7 @@ from copy import deepcopy
 
 TOOL_NAMES: tuple[str, ...] = (
     "zoom", "date", "delegate_codex", "delegate_hermes", "web_search", "web_extract", "vision",
+    "terminal", "read_file", "write_file", "patch", "search_files",
 )
 
 # Section 4 defines delegate_hermes as delegate_codex minus model/dir;
@@ -189,6 +190,150 @@ _SCHEMAS = [
                 "required": [
                     "image_url",
                     "question"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "terminal",
+            "description": "Run a shell command and return its output. Use for anything the other tools do not cover.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The command line to run."
+                    },
+                    "workdir": {
+                        "type": "string",
+                        "description": "Absolute directory to run in (defaults to the workspace)."
+                    },
+                    "timeout_s": {
+                        "type": "integer",
+                        "description": "Seconds before the process group is killed (default 120, max 600)."
+                    }
+                },
+                "required": [
+                    "command"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a text file, with line numbers and pagination.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "First line to read, 1-indexed (default 1)."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum lines (default 2000)."
+                    }
+                },
+                "required": [
+                    "path"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write a file, replacing it whole. Writing a new path creates it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "content": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "path",
+                    "content"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "patch",
+            "description": "Replace one exact string in a file. The old text must appear exactly once.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "old_string": {
+                        "type": "string"
+                    },
+                    "new_string": {
+                        "type": "string"
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": "Replace every occurrence instead of requiring one (default false)."
+                    }
+                },
+                "required": [
+                    "path",
+                    "old_string",
+                    "new_string"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_files",
+            "description": "Find files by name, or search inside files by regular expression.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "A regex, or a glob such as *.py when target is files."
+                    },
+                    "target": {
+                        "type": "string",
+                        "enum": [
+                            "content",
+                            "files"
+                        ],
+                        "description": "Search inside files (default), or find files by name."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory or file to search (defaults to the workspace)."
+                    },
+                    "file_glob": {
+                        "type": "string",
+                        "description": "Restrict a content search to matching files, e.g. *.py."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum results (default 50)."
+                    }
+                },
+                "required": [
+                    "pattern"
                 ]
             }
         }

@@ -1,62 +1,36 @@
-# P4a brief - the shell + files batch (`terminal`, `read_file`, `write_file`, `patch`, `search_files`)
+# P4a brief - the shell + files batch: `terminal`, `read_file`, `write_file`, `patch`, `search_files`
 
-**STATUS: NOT RUN.** Two decisions are owed by Illan, and the five schemas below are a **proposal to
-red-line** - they do not exist in `docs/TOOLS.md` yet, and the tool array is the cache anchor, so
-whoever writes them is writing an interface. Nothing in this brief has been implemented.
+**APPROVED 2026-10-13 - run this.** The six decisions below are settled rulings, not options, and the
+five schemas are approved: copy them **verbatim** into `docs/TOOLS.md` and `willia/toolkit.py` in
+lockstep - a guard test compares the two.
 
-Read `docs/TOOLS.md` section 9 (the parity table and its two constraints), `docs/LOOP.md` section 4
-(how a result is logged), and `willia/toolkit.py`, `willia/prompt-default.md`,
-`tests/test_toolkit.py::test_all_tool_names_are_in_the_composed_prompt`.
+Read first: `docs/TOOLS.md` (sections 1-4 for the conventions every tool follows, 8 and 9),
+`docs/LOOP.md` section 4 (how a result is logged), `willia/dispatch.py`, `willia/toolkit.py`,
+`willia/prompts.py`, `willia/config.py`, `willia/web.py` (the shape a handler has), and
+`tests/test_toolkit.py` (the guard tests you must update).
 
-## What is true today
+## The settled rulings
 
-- The v1 array holds exactly seven tools. Adding five schemas **rewrites the shared prefix once**;
-  the batch is designed to land whole and then freeze (`TOOLS.md` section 9, constraint 1). That is
-  the point of the batch, not a side effect to avoid - but it means the five must be right the first
-  time, because a later tweak rewrites the prefix again.
-- A guard test asserts that **every** name in `toolkit.TOOL_NAMES` appears in the composed system
-  prompt (`SYSTEM_PROMPT` plus the user's own instructions). A batch therefore cannot land without
-  naming its tools in the prompt.
-- The machine paragraph lives in `willia/prompt-default.md` and says, in Illan's own voice: "You
-  have no device shell and no computer-use tool. What is not in your tool list cannot be done here."
-  True today; false the moment this batch lands.
-- The prompt is **per chat**. `Chat.open` writes `prompt.md` into the root only if it is absent, and
-  the real chat at `~/.willia` already has one (1019 bytes, Illan's file, seeded at creation).
-  Editing the repo default therefore does **not** reach an existing chat - this is the gap the first
-  decision is about.
+1. **The prompt carries a constant, code-owned block.** `prompts.build_system_prompt` returns
+   `SYSTEM_PROMPT + "\n\n" + TOOL_GROUPS + "\n\n" + instructions`, where `TOOL_GROUPS` is a new module
+   constant. It reaches every existing chat without editing a file the user owns. `SYSTEM_PROMPT`
+   itself must not change by even one byte - a test compares it to the canon.
+2. **`terminal` is workspaced and ungated.** It runs in the configured workspace, with a per-call
+   timeout, output clipped head+tail; no allow-list. That is the same reach `codex exec` already has.
+3. **One workspace setting.** A new `Config.workspace` defaulting to a new module constant
+   `DEFAULT_WORKSPACE = "~/Documents/coding"`, and `CodexDelegateConfig.dir` defaulting to that same
+   constant so the two cannot drift. Add `workspace` to `Config.load`'s `known` set and thread it into
+   `_codex` so an unset delegate dir follows the workspace.
+4. **`terminal` does not stream.** It returns once, clipped.
+5. **`write_file` accepts any absolute path**, exactly as the delegates can already write anywhere.
+6. **`read_file` refuses binary**, so the model gets an honest error instead of garbage in a log that
+   is never edited. The test is a **NUL byte** in the bounded head (present in essentially every real
+   binary, absent from text) - *not* "does not decode as UTF-8", which would wrongly refuse a
+   legacy-encoded text file. A file that passes is decoded with `errors="replace"` and the result
+   reports how many bytes were replaced (`replaced_bytes`). Read a bounded head (the first few MB)
+   and stop rather than slurping a huge file to answer a 2000-line request.
 
-## Decision 1 - how an existing chat learns the new tool set
-
-- **(a) A fixed, code-owned block (recommended).** `prompts.build_system_prompt` appends a *constant*
-  paragraph naming the tool groups, after `SYSTEM_PROMPT` and before the user's instructions.
-  Constant means it cannot vary per turn, so the anchor still holds, and every existing chat gets it
-  without anyone touching a file the user owns. Cost: the composed prompt is no longer literally
-  `SYSTEM_PROMPT + user text`, so `test_system_prompt_matches_canonical_block` needs one line
-  restated (it asserts `composed.startswith(SYSTEM_PROMPT)` today, which stays true).
-- **(b) Edit `willia/prompt-default.md` only.** Cheapest, but reaches **new chats only**:
-  `~/.willia/prompt.md` keeps telling the model it has no shell, and it will not use one.
-- **(c) Edit the default *and* `~/.willia/prompt.md`.** Honest, but writes to the user's own file.
-  Only he should do that.
-
-## Decision 2 - what `terminal` is allowed to do
-
-willia has no approval gate and no sandbox, and "workspace-scoped" (`TOOLS.md` section 9) is not yet
-a mechanism. This is a real policy choice, not a detail.
-
-- **(a) Workspaced, ungated (recommended for v1).** A fixed working directory (a configured
-  workspace, default `~/Documents/coding`), a per-call timeout, output clipped head+tail at the
-  tool clip limit, and the command visible in the `tool` record. No allow-list. This is the same
-  trust level the delegate lane already has - `codex exec` runs with the same reach today - so it
-  adds no new exposure, and it is what unlocks the willcuts and posting CLIs.
-- **(b) Allow-list or deny-list of commands.** Buys little: a deny-list on a shell is theatre, and
-  (a) already matches the delegates' reach.
-- **(c) Keep the whole group in the delegate lane** and add nothing to the array. Safest, and it
-  costs exactly the thing this batch exists for.
-
-## Proposed schemas (to red-line before anything is written)
-
-Drafted in the style and conventions of the existing seven. `TOOLS.md` needs a new section 5b (or
-5-9 relettered) for these, and `toolkit.py` must move in lockstep or the guard test fails.
+## Frozen schemas (verbatim, appended after `vision`, in this order)
 
 ```json
 {"type": "function", "function": {
@@ -115,52 +89,74 @@ Drafted in the style and conventions of the existing seven. `TOOLS.md` needs a n
    "required": ["pattern"]}}}
 ```
 
-Implied result shapes (the tool message is always a JSON string):
+**A trap in `docs/TOOLS.md`:** the guard test reads every ```json block in the file, in order, and
+synthesizes `delegate_hermes` from `delegate_codex` at index 2. The five new blocks must therefore
+appear **after** the `vision` block, and no other ```json block may follow them in the file. Do not
+renumber the existing sections - give the batch its own subsection at the end of section 9.
+
+## Result shapes (the tool message is always a JSON string; a failure is `{"error": ...}`)
 
 | Tool | Result |
 |---|---|
 | `terminal` | `{"exit_code": <int>, "stdout": "<text>", "stderr": "<text>", "workdir": "<abs>", "timed_out": <bool>}` |
-| `read_file` | `{"path": "<abs>", "content": "<lines>", "total_lines": <int>, "offset": <int>}` |
+| `read_file` | `{"path": "<abs>", "content": "<lines>", "total_lines": <int>, "offset": <int>, "replaced_bytes": <int>}` |
 | `write_file` | `{"path": "<abs>", "bytes_written": <int>}` |
 | `patch` | `{"path": "<abs>", "diff": "<unified diff>", "replacements": <int>}` |
-| `search_files` | `{"results": [{"path": "<abs>", "line": <int>, "text": "<line>"} | {"path": "<abs>"}], "truncated": <bool>}` |
+| `search_files` | `{"results": [{"path": "<abs>", "line": <int>, "text": "<line>"} or {"path": "<abs>"}], "truncated": <bool>}` |
 
-Open sub-questions inside the proposal, all small and all his to settle:
+Error rules, each a named `{"error": ...}` and never an exception: a missing path; a path that is a
+directory where a file is wanted; a `patch` whose `old_string` is absent, or (without `replace_all`)
+appears more than once; a `terminal` `workdir` that does not exist; a `read_file` on binary.
 
-1. Does `terminal` stream, or return once? (Recommend: return once, clipped - streaming would put
-   per-turn state in the loop.)
-2. Is the workspace a **new** config field (`workspace`) or `delegates.codex.dir` reused? (Recommend:
-   a new `workspace` field defaulting to `~/Documents/coding`, with `delegates.codex.dir` defaulting
-   to it so the two cannot drift.)
-3. Does `write_file` refuse a path outside the workspace, or accept any absolute path? (Recommend:
-   accept any absolute path, exactly as the delegates can already write anywhere - a scope that is
-   only enforced in one tool is worse than none, because it reads as a guarantee.)
-4. `read_file` on a binary: refuse with a named error, or return a size note? (Recommend: refuse.)
+## Deliverables
 
-## Deliverables (once both decisions are made)
+1. `willia/fs.py` (new) - the five handlers, each returning its JSON string. `terminal` uses
+   `subprocess.Popen(command, shell=True, cwd=workdir, stdout=PIPE, stderr=PIPE,
+   start_new_session=True)` with the same process-group kill on timeout the delegate supervisor uses
+   (`os.killpg(..., signal.SIGKILL)`), and clips stdout/stderr head+tail at `config.tool_clip_chars`.
+   `search_files` is stdlib: `os.walk`, skip `.git` directories, skip files over ~5 MB, and honour
+   `target` / `file_glob` / `limit` so it terminates on a large tree.
+2. `willia/toolkit.py` - the five schemas appended to `_SCHEMAS` and `TOOL_NAMES`.
+3. `willia/prompts.py` - `TOOL_GROUPS` as a module constant, written in the register of
+   `willia/prompt-default.md` (second person, plain), naming the five new tools and stating that they
+   run on Illan's machine with no approval step. It must also say that any earlier line claiming there
+   is no shell is out of date: existing chats carry Illan's own seeded `~/.willia/prompt.md`, which
+   still contains that sentence and must not contradict the tool list. `build_system_prompt` composes
+   as ruling 1 says.
+4. `willia/config.py` - `DEFAULT_WORKSPACE`, `Config.workspace`, the `known` entry, and
+   `delegates.codex.dir` following the same constant.
+5. `willia/dispatch.py` - routing for the five, with `chat=None` still working (fall back to
+   `Config()` for the workspace, as the web tools already do).
+6. `docs/TOOLS.md` - the batch's subsection (the five schemas, the result shapes, the error rules),
+   section 9's table marking the shell + files row as landed, and five new rows in section 8's
+   "where each result lands" table (all five land as `echo`).
+7. Tests - `tests/test_fs.py` (new) plus the updates `tests/test_toolkit.py` needs: `NAMES` becomes
+   twelve, `test_function_schema_shape` gains the five rows, `test_all_tool_names_are_in_the_composed_prompt`
+   keeps its `NAMES[2:]` claim only for the five names that live in the user's instructions, and the
+   two prompt-composition tests must expect the new block. **All offline**; every filesystem test
+   confined to `tmp_path`; the `terminal` test runs a real trivial command
+   (`python3 -c "print(...)"`) and asserts the exit code and both streams; another asserts that a
+   timeout kills a sleeping process group.
 
-1. `willia/fs.py` (new) - the five handlers, each returning the JSON string above, each refusing
-   rather than raising. `search_files` uses the stdlib; no new dependency.
-2. `willia/toolkit.py` - the five schemas appended to `_SCHEMAS` and `TOOL_NAMES`, in the order
-   `terminal, read_file, write_file, patch, search_files`.
-3. `willia/prompt-default.md` + `prompts.build_system_prompt` - per Decision 1, and the machine
-   paragraph's "you have no device shell" line corrected.
-4. `willia/dispatch.py` - routing for the five, with `chat=None` still working for the ones that
-   need only a workspace.
-5. `docs/TOOLS.md` - a section for the five (schema + result shape + error rules), so the guard test
-   and the doc agree; and section 9's table updated to mark the group landed.
-6. Tests - offline, with the filesystem confined to `tmp_path`; plus a `terminal` test that runs a
-   real trivial command (`python3 -c print(...)`) and asserts the exit code and both streams.
-7. The batch's own Green check: serialize the tool array and the composed prompt **before and after**
-   the batch and assert they differ **only** by the five added schemas and the prompt paragraph; then
-   measure one real cache read on the first turn after the batch and record it in
-   `docs/WIRE-FORMATS.md` section 1.
+## The batch's own Green check (the session runs this, not you)
+
+Serialize `toolkit.schemas()` and `build_system_prompt(default_instructions())` **before and after**
+the batch and assert they differ only by the five added schemas and the added prompt block; then the
+session measures one real cache read on the first turn after the batch and records it in
+`docs/WIRE-FORMATS.md` section 1.
 
 ## Constraints (every one, again)
 
 - **No git commands of any kind.** Do not commit, stash, branch, restore, diff or reset.
 - Edit only the files named above.
 - Do not add a dependency. stdlib only.
+- Do not change a byte of `prompts.SYSTEM_PROMPT` or of the seven existing schemas.
 - A tool result is a JSON string and never list-type content in a tool message.
 - A tool never raises into the loop: a failure is `{"error": ...}`.
-- Nothing per-turn (cwd listings, dates, device state) may enter the array or the system prompt.
+- Nothing per-turn (a directory listing, a date, device state) may enter the array or the prompt.
+
+## Proof
+
+Run the whole suite (`uv run --no-project --with pytest python -m pytest -q`) and paste the tail.
+Then paste the `TOOL_GROUPS` constant and the five handler bodies, and say for each deliverable
+exactly what you changed.

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import jobs, toolkit, tools, vision as vision_tool, web
+from . import fs, jobs, toolkit, tools, vision as vision_tool, web
 from .config import Config
 from .store import Log
 from .tree import Tree
@@ -42,12 +42,40 @@ def dispatch(name: str, arguments: object, *, log, tree, view, root,
             return _error("vision needs an owning chat")
         if name not in {
             "zoom", "date", "web_search", "web_extract", "vision", *_DELEGATES,
+            "terminal", "read_file", "write_file", "patch", "search_files",
         }:
             return _error(f"unknown tool: {name}")
         if isinstance(arguments, str):
             arguments = json.loads(arguments)
         if not isinstance(arguments, dict):
             return _error("arguments must be a JSON object")
+        if name in {"terminal", "read_file", "write_file", "patch", "search_files"}:
+            config = chat.config if chat is not None else Config()
+            if name == "terminal":
+                return fs.terminal(
+                    arguments.get("command"), arguments.get("workdir"),
+                    arguments.get("timeout_s"), config,
+                )
+            if name == "read_file":
+                return fs.read_file(
+                    arguments.get("path"), arguments.get("offset"),
+                    arguments.get("limit"), config,
+                )
+            if name == "write_file":
+                return fs.write_file(
+                    arguments.get("path"), arguments.get("content"), config,
+                )
+            if name == "patch":
+                return fs.patch(
+                    arguments.get("path"), arguments.get("old_string"),
+                    arguments.get("new_string"), arguments.get("replace_all", False),
+                    config,
+                )
+            return fs.search_files(
+                arguments.get("pattern"), arguments.get("target"),
+                arguments.get("path"), arguments.get("file_glob"),
+                arguments.get("limit"), config,
+            )
         if name in {"web_search", "web_extract"}:
             config = chat.config if chat is not None else Config()
             if name == "web_search":

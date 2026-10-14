@@ -6,8 +6,8 @@ state. A test must read the tool names from the registry and assert each appears
 prompt's text (the host build once shipped `zoom`/`date` in the prompt while the registered names
 were `optchat_*`, and navigation was impossible — `ENGINE.md` §6).
 
-v1 array, in this order: `zoom`, `date`, `delegate_codex`, `delegate_hermes`, `web_search`,
-`web_extract`, `vision`.
+Current array, in this order: `zoom`, `date`, `delegate_codex`, `delegate_hermes`, `web_search`,
+`web_extract`, `vision`, `terminal`, `read_file`, `write_file`, `patch`, `search_files`.
 
 ## 1. Renames and result rules
 
@@ -168,16 +168,21 @@ keep little of tool output (the recipe's line that does the most work).
 | a delegate's eventual report | `work` | `"[Name] <report>"`, clipped head+tail |
 | `web_search` / `web_extract` | `echo` | clipped head+tail |
 | `vision` | `echo` | the answer text |
+| `terminal` | `echo` | one bounded result after the process exits or times out |
+| `read_file` | `echo` | numbered text from the bounded file head |
+| `write_file` | `echo` | path and byte count |
+| `patch` | `echo` | path, unified diff and replacement count |
+| `search_files` | `echo` | bounded match list |
 | an unknown tool name | `echo` | `{"error": "unknown tool: <name>"}` — never silently dropped |
 
-## 9. Later: the Hermes-parity tools (P4 — deliberately not v1)
+## 9. Hermes-parity tools (P4; shell + files landed)
 
-The v1 array is small because it must be. The tools you actually use daily on Hermes come back as
+The v1 array was small because it had to be. The tools you actually use daily on Hermes return as
 **native implementations in willia** — never as Hermes imports — in this order of value:
 
 | Group | Tools | Notes |
 |---|---|---|
-| shell + files | `terminal`, `read_file`, `write_file`, `patch`, `search_files` | workspace-scoped; the recipe's "do the user's tasks yourself, with your tools" assumes exactly this. |
+| shell + files | `terminal`, `read_file`, `write_file`, `patch`, `search_files` | **Landed in P4a.** Workspace defaults apply to relative paths and shell execution; absolute paths remain available. |
 | planning | `todo` | per-turn state goes **after** the view. |
 | browse | `browser` (local playwright) | the site-check and posting-automation workflows. |
 | computer use | `computer_use` (desktop driving) | the heavy one; in Hermes it is a driver process. Keep it in the delegate lane until it earns its place in the array. |
@@ -193,3 +198,78 @@ Two constraints on every addition:
 2. **Nothing per-turn may enter the array or the system prompt.** Skill text, device lists, cron
    metadata, dates: all of it goes **after** the view (recipe §6, §7.10). Tool results stay JSON
    strings and never carry list-type content (the Go relay — `WIRE-FORMATS` §1).
+
+### 9.1 P4a — shell + files
+
+All five results are JSON strings. Their successful shapes are fixed:
+
+| Tool | Result |
+|---|---|
+| `terminal` | `{"exit_code": <int>, "stdout": "<text>", "stderr": "<text>", "workdir": "<abs>", "timed_out": <bool>}` |
+| `read_file` | `{"path": "<abs>", "content": "<lines>", "total_lines": <int>, "offset": <int>, "replaced_bytes": <int>}` |
+| `write_file` | `{"path": "<abs>", "bytes_written": <int>}` |
+| `patch` | `{"path": "<abs>", "diff": "<unified diff>", "replacements": <int>}` |
+| `search_files` | `{"results": [{"path": "<abs>", "line": <int>, "text": "<line>"} or {"path": "<abs>"}], "truncated": <bool>}` |
+
+Every failure is a named `{"error": ...}` result, never an exception. This includes a missing path;
+a directory where a file is required; an absent `patch` `old_string`; a repeated `old_string`
+without `replace_all`; a nonexistent `terminal` workdir; and a binary `read_file` input. Binary is
+defined by a NUL byte in the bounded head, not by UTF-8 decoding. Text is decoded with replacement
+and reports `replaced_bytes`.
+
+```json
+{"type": "function", "function": {
+  "name": "terminal",
+  "description": "Run a shell command and return its output. Use for anything the other tools do not cover.",
+  "parameters": {"type": "object", "properties": {
+    "command": {"type": "string", "description": "The command line to run."},
+    "workdir": {"type": "string", "description": "Absolute directory to run in (defaults to the workspace)."},
+    "timeout_s": {"type": "integer", "description": "Seconds before the process group is killed (default 120, max 600)."}},
+   "required": ["command"]}}}
+```
+
+```json
+{"type": "function", "function": {
+  "name": "read_file",
+  "description": "Read a text file, with line numbers and pagination.",
+  "parameters": {"type": "object", "properties": {
+    "path": {"type": "string"},
+    "offset": {"type": "integer", "description": "First line to read, 1-indexed (default 1)."},
+    "limit": {"type": "integer", "description": "Maximum lines (default 2000)."}},
+   "required": ["path"]}}}
+```
+
+```json
+{"type": "function", "function": {
+  "name": "write_file",
+  "description": "Write a file, replacing it whole. Writing a new path creates it.",
+  "parameters": {"type": "object", "properties": {
+    "path": {"type": "string"},
+    "content": {"type": "string"}},
+   "required": ["path", "content"]}}}
+```
+
+```json
+{"type": "function", "function": {
+  "name": "patch",
+  "description": "Replace one exact string in a file. The old text must appear exactly once.",
+  "parameters": {"type": "object", "properties": {
+    "path": {"type": "string"},
+    "old_string": {"type": "string"},
+    "new_string": {"type": "string"},
+    "replace_all": {"type": "boolean", "description": "Replace every occurrence instead of requiring one (default false)."}},
+   "required": ["path", "old_string", "new_string"]}}}
+```
+
+```json
+{"type": "function", "function": {
+  "name": "search_files",
+  "description": "Find files by name, or search inside files by regular expression.",
+  "parameters": {"type": "object", "properties": {
+    "pattern": {"type": "string", "description": "A regex, or a glob such as *.py when target is files."},
+    "target": {"type": "string", "enum": ["content", "files"], "description": "Search inside files (default), or find files by name."},
+    "path": {"type": "string", "description": "Directory or file to search (defaults to the workspace)."},
+    "file_glob": {"type": "string", "description": "Restrict a content search to matching files, e.g. *.py."},
+    "limit": {"type": "integer", "description": "Maximum results (default 50)."}},
+   "required": ["pattern"]}}}
+```

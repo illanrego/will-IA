@@ -88,6 +88,7 @@ or Hermes, and non-coding tools implemented natively.
 
 1. Directory/repo name: `willia` on disk? (GitHub name is yours; nothing is pushed until told.)
 2. In-prompt agent name: rename the recipe's "Unii" to "Will" (or "will.I.A.")? Persona is yours.
-3. P1 REPL: plain line-based first (recommended), fancy TUI later?
+3. ~~P1 REPL: plain line-based first (recommended), fancy TUI later?~~ **SETTLED 2026-10-13:** plain
+   line-based now (shipped in P1); the TUI replaces it **after** the remaining P4 parity batches.
 4. Native v1 set: web + vision is enough to start, or anything else already missing?
 5. ~~Codex delegation default~~ **SETTLED:** `gpt-5.6-sol` at high effort for most tasks; `gpt-6-astra` at high only for the tricky or precision-critical parts (where a late catch would cost more than the model does). (Corrected 2026-10-13: this line said `gpt-6-sol`, which does not exist and 400s instantly. The account's catalog is `gpt-5.5`, `gpt-5.6-sol`, `gpt-6-astra`; the delegate command is `docs/DELEGATES.md` section 2.)

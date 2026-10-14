@@ -120,6 +120,14 @@ The compaction is the point: its system prompt and tool array are byte-identical
 it read 95.8% of its input from the cache the turn had just written — the envelope works, and it
 works through our code, not in the host's. `thinking: {"type": "disabled"}` kept reasoning at zero.
 
+**After the P4a batch** (the array went from 7 to 12 tools and the prompt gained its `TOOL_GROUPS`
+block: schemas 3,508 -> 5,932 bytes, prompt 4,661 -> 5,136 bytes), measured through
+`probes/p4a-live-proof.py` on a fresh chat: the first call wrote the new prefix with
+`cache_read_tokens: 0` of 2,987 prompt tokens, and **the very next call read 2,944 of 3,089
+(95.3%)**; a third call read 2,944 of 3,101 (94.9%). A batch therefore rewrites the shared prefix
+exactly once and the cache picks it up immediately - which is why the array lands in batches and
+freezes between them (`TOOLS.md` section 9, constraint 1).
+
 The full measured usage object, for the meter (the relay returns more keys than the doc needs):
 
 ```json

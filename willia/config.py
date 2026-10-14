@@ -15,6 +15,7 @@ from typing import Any
 
 
 _LOG = logging.getLogger(__name__)
+DEFAULT_WORKSPACE = "~/Documents/coding"
 
 
 @dataclass(frozen=True)
@@ -62,7 +63,7 @@ class CodexDelegateConfig:
     model: str = "gpt-5.6-sol"
     model_precise: str = "gpt-6-astra"
     reasoning_effort: str = "high"
-    dir: str = "~/Documents/coding"
+    dir: str = DEFAULT_WORKSPACE
     timeout_minutes: int = 30
 
 
@@ -253,7 +254,7 @@ def _vision(data: dict[str, Any]) -> VisionConfig:
     )
 
 
-def _codex(data: dict[str, Any]) -> CodexDelegateConfig:
+def _codex(data: dict[str, Any], workspace: str = DEFAULT_WORKSPACE) -> CodexDelegateConfig:
     known = {
         "enabled", "bin", "model", "model_precise", "reasoning_effort", "dir",
         "timeout_minutes",
@@ -270,7 +271,7 @@ def _codex(data: dict[str, Any]) -> CodexDelegateConfig:
         reasoning_effort=_expect(
             data, "reasoning_effort", defaults.reasoning_effort, str, "delegates.codex"
         ),
-        dir=_expect(data, "dir", defaults.dir, str, "delegates.codex"),
+        dir=_expect(data, "dir", workspace, str, "delegates.codex"),
         timeout_minutes=_expect(
             data, "timeout_minutes", defaults.timeout_minutes, int, "delegates.codex"
         ),
@@ -289,10 +290,10 @@ def _hermes(data: dict[str, Any]) -> HermesDelegateConfig:
     )
 
 
-def _delegates(data: dict[str, Any]) -> DelegatesConfig:
+def _delegates(data: dict[str, Any], workspace: str = DEFAULT_WORKSPACE) -> DelegatesConfig:
     _warn_unknown(data, {"codex", "hermes"}, "delegates")
     return DelegatesConfig(
-        codex=_codex(_object(data, "codex", "delegates")),
+        codex=_codex(_object(data, "codex", "delegates"), workspace),
         hermes=_hermes(_object(data, "hermes", "delegates")),
     )
 
@@ -317,6 +318,7 @@ class Config:
     compact_concurrency: int = 8
     compact_max_retries: int = 5
     tool_clip_chars: int = 30_000
+    workspace: str = DEFAULT_WORKSPACE
     web: WebConfig = field(default_factory=WebConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
     delegates: DelegatesConfig = field(default_factory=DelegatesConfig)
@@ -345,10 +347,11 @@ class Config:
         known = {
             "model", "view_min_bytes", "view_max_bytes", "node_bytes",
             "compact_view_min_bytes", "compact_view_max_bytes", "compact_enabled",
-            "compact_concurrency", "compact_max_retries", "tool_clip_chars", "web",
+            "compact_concurrency", "compact_max_retries", "tool_clip_chars", "workspace", "web",
             "vision", "delegates", "repl",
         }
         _warn_unknown(raw, known)
+        workspace = _expect(raw, "workspace", DEFAULT_WORKSPACE, str)
         return cls(
             model=_model(_object(raw, "model")),
             view_min_bytes=_expect(raw, "view_min_bytes", 64_000, int),
@@ -360,9 +363,10 @@ class Config:
             compact_concurrency=_expect(raw, "compact_concurrency", 8, int),
             compact_max_retries=_expect(raw, "compact_max_retries", 5, int),
             tool_clip_chars=_expect(raw, "tool_clip_chars", 30_000, int),
+            workspace=workspace,
             web=_web(_object(raw, "web")),
             vision=_vision(_object(raw, "vision")),
-            delegates=_delegates(_object(raw, "delegates")),
+            delegates=_delegates(_object(raw, "delegates"), workspace),
             repl=_repl(_object(raw, "repl")),
             root=root,
             config_file=config_file,

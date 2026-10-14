@@ -170,6 +170,15 @@ both were exercised against the live account. What remains is item 2: a real rid
 
 ## P4 — parity tools (post-v1, batched)
 
+**Status (2026-10-13): batch (a) landed** - `terminal`, `read_file`, `write_file`, `patch` and
+`search_files` are in the array (the `todo` tool was deliberately not; it belongs with the
+planning group). The prompt gained a constant, code-owned `TOOL_GROUPS` block so an existing chat
+learns the new tools without anyone editing the file the user owns. Measured: the prefix rewrote
+once and the next call read 95.3% of it from the cache.
+
+**The REPL's TUI is deliberately last** - Illan's ruling, 2026-10-13: finish the software (the
+remaining parity batches), then replace the line-based REPL with a TUI (`SCOPE.md` question 3).
+
 **Deliverables:** the tool groups in `TOOLS.md` §9, one batch per run, each batch frozen once it
 lands: (a) shell + files + todo, (b) browser, (c) computer use, (d) voice, (e) cron, (f) MCP +
 skills.
