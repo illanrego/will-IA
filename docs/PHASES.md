@@ -176,8 +176,10 @@ planning group). The prompt gained a constant, code-owned `TOOL_GROUPS` block so
 learns the new tools without anyone editing the file the user owns. Measured: the prefix rewrote
 once and the next call read 95.3% of it from the cache.
 
-**The REPL's TUI is deliberately last** - Illan's ruling, 2026-10-13: finish the software (the
-remaining parity batches), then replace the line-based REPL with a TUI (`SCOPE.md` question 3).
+**The TUI comes next, before the remaining batches** - Illan's ruling, revised 2026-10-14. The
+line-based REPL renders the model's reasoning and its answer identically (`chat._on_delta` ignores the
+stream kind), so the display needs replacing before more tools land into it. Direction: cyberpunk AI
+tool, blue-dominant, closer to the Omarchy home menu than to opencode (`SCOPE.md` question 3).
 
 **Deliverables:** the tool groups in `TOOLS.md` §9, one batch per run, each batch frozen once it
 lands: (a) shell + files + todo, (b) browser, (c) computer use, (d) voice, (e) cron, (f) MCP +

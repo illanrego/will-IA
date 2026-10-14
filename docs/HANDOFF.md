@@ -78,11 +78,14 @@ willia --usage                                              # the meter + the pl
 1. **His first real ride with the new tools** (P3 item 2, still outstanding). Each failure the ride
    surfaces gets a repro, a fix, a test and a commit — the `FINDINGS.md` discipline carried over.
    `terminal` is the one to watch: it is ungated by design.
-2. **The remaining P4 batches**, in this order: browser, computer use, voice, cron, MCP, skills — and
-   the planning `todo`, which P4a deliberately skipped. Each rewrites the cache prefix once, then
-   freezes. The next brief is P4b, citing `TOOLS.md` §9.
-3. **The TUI last** — Illan's ruling, 2026-10-14: finish the software, then replace the line-based
-   REPL (`SCOPE.md` question 3, `PHASES.md` P4).
+2. **The TUI, next** — Illan's ruling, reversed 2026-10-14: the line-based REPL renders the model's
+   reasoning and its answer as one stream (`chat._on_delta` ignores the stream kind), so the display
+   is replaced **before** more tools land into it. Direction: cyberpunk AI tool, blue-dominant,
+   Omarchy-home-menu rather than opencode. It needs its own phase and acceptance, which do not exist
+   yet (`SCOPE.md` question 3, `PHASES.md` P4).
+3. **Then the remaining P4 batches**, in this order: browser, computer use, voice, cron, MCP, skills
+   — and the planning `todo`, which P4a deliberately skipped. Each rewrites the cache prefix once,
+   then freezes.
 
 ## The rules he holds you to
 
