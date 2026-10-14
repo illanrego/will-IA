@@ -14,24 +14,24 @@ TOKENS = (
 PALETTES: dict[str, dict[str, str]] = {
     "blue": {
         "bg": "#06090F", "panel": "#0A101B", "rule": "#1D2631",
-        "rule_strong": "#374C5D", "body": "#DDE7F5", "dim": "#7E8DA6",
-        "reason": "#8E9DB6", "agent": "#8FDCFF", "data": "#8FDCFF",
-        "amber": "#FFC069", "red": "#FF6E73", "ok": "#7FEBC8",
-        "you": "#EDF3FB", "strong": "#F2F7FE",
+        "rule_strong": "#374C5D", "body": "#C6D6EA", "dim": "#7E8DA6",
+        "reason": "#8E9DB6", "agent": "#63CCFF", "data": "#63CCFF",
+        "amber": "#FFB44D", "red": "#FF5A60", "ok": "#5FE8B8",
+        "you": "#D8E6FA", "strong": "#E8F2FF",
     },
     "green": {
         "bg": "#050A09", "panel": "#081412", "rule": "#192C24",
-        "rule_strong": "#305747", "body": "#DCEFE6", "dim": "#7B948B",
-        "reason": "#8AA69C", "agent": "#7BEBBE", "data": "#7BEBBE",
-        "amber": "#EFCC77", "red": "#FF6E73", "ok": "#9FD4FF",
-        "you": "#EDF3FB", "strong": "#F2FBF6",
+        "rule_strong": "#305747", "body": "#C2E3D4", "dim": "#7B948B",
+        "reason": "#8AA69C", "agent": "#4FE0A2", "data": "#4FE0A2",
+        "amber": "#E8BE55", "red": "#FF5A60", "ok": "#9FD4FF",
+        "you": "#DCF2E6", "strong": "#E6FBEF",
     },
     "mixed": {
         "bg": "#06090F", "panel": "#0A101B", "rule": "#1E2834",
-        "rule_strong": "#374C5D", "body": "#DDE7F5", "dim": "#7E8DA6",
-        "reason": "#8E9DB6", "agent": "#8FDCFF", "data": "#7BEBBE",
-        "amber": "#FFC069", "red": "#FF6E73", "ok": "#7BEBBE",
-        "you": "#EDF3FB", "strong": "#F2F7FE",
+        "rule_strong": "#374C5D", "body": "#C6D6EA", "dim": "#7E8DA6",
+        "reason": "#8E9DB6", "agent": "#63CCFF", "data": "#4FE0A2",
+        "amber": "#FFB44D", "red": "#FF5A60", "ok": "#4FE0A2",
+        "you": "#D8E6FA", "strong": "#E8F2FF",
     },
 }
 
